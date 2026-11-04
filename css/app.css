@@ -158,8 +158,12 @@ textarea { resize: vertical; min-height: 0; }
 .set input { text-align: center; font-weight: 700; }
 
 .movs { margin-bottom: 10px; }
-.mov { display: grid; grid-template-columns: 1fr 76px 70px 34px; gap: 6px; margin-bottom: 8px; align-items: center; }
+.mov { display: grid; grid-template-columns: 1fr 1fr 34px; gap: 6px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--line); align-items: center; }
 .mov input { padding: 10px; }
+.mov input[list] { grid-area: 1 / 1 / 2 / 3; font-weight: 600; }
+.mov .icon-btn { grid-area: 1 / 3; }
+.mov .mov-reps { grid-area: 2 / 1; }
+.mov .mov-kg { grid-area: 2 / 2; }
 
 .result { background: var(--bg2); border-radius: 14px; padding: 12px; margin-bottom: 10px; }
 .result-title { font-weight: 800; margin-bottom: 8px; }

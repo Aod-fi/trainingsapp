@@ -1,6 +1,6 @@
 // Service Worker: App-Dateien offline verfügbar machen.
 // Bei jeder Änderung an App-Dateien VERSION erhöhen.
-const VERSION = 'v0.0.1-1';
+const VERSION = 'v0.0.2-1';
 const ASSETS = [
   './',
   './index.html',

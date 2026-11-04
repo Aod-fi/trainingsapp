@@ -2,6 +2,21 @@
 // im (privaten) Daten-Repo, z. B. Aod-fi/trainingsapp-daten:data/trainings.json
 
 const API = 'https://api.github.com';
+const TIMEOUT_MS = 15000;
+
+// fetch mit Zeitlimit, damit schlechtes Netz in der Box den Sync nicht ewig blockiert
+async function fetchT(input, init = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Zeitüberschreitung – Netz zu langsam');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function b64encode(str) {
   const bytes = new TextEncoder().encode(str);
@@ -35,7 +50,7 @@ export function isConfigured(cfg) {
 }
 
 export async function loadFile(cfg) {
-  const res = await fetch(`${url(cfg)}?ref=${encodeURIComponent(cfg.branch || 'main')}`, {
+  const res = await fetchT(`${url(cfg)}?ref=${encodeURIComponent(cfg.branch || 'main')}`, {
     headers: headers(cfg.token),
     cache: 'no-store',
   });
@@ -47,7 +62,7 @@ export async function loadFile(cfg) {
     text = b64decode(json.content);
   } else {
     // Dateien > 1 MB kommen ohne content, dann über download_url laden
-    const raw = await fetch(json.download_url, { headers: headers(cfg.token) });
+    const raw = await fetchT(json.download_url, { headers: headers(cfg.token) });
     text = await raw.text();
   }
   return { data: JSON.parse(text), sha: json.sha };
@@ -60,7 +75,7 @@ export async function saveFile(cfg, data, sha, message) {
     branch: cfg.branch || 'main',
   };
   if (sha) body.sha = sha;
-  const res = await fetch(url(cfg), {
+  const res = await fetchT(url(cfg), {
     method: 'PUT',
     headers: { ...headers(cfg.token), 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -76,7 +91,7 @@ export async function saveFile(cfg, data, sha, message) {
 }
 
 export async function testAccess(cfg) {
-  const res = await fetch(`${API}/repos/${cfg.owner}/${cfg.repo}`, { headers: headers(cfg.token) });
+  const res = await fetchT(`${API}/repos/${cfg.owner}/${cfg.repo}`, { headers: headers(cfg.token) });
   if (!res.ok) throw new Error(res.status === 404 ? 'Repo nicht gefunden oder kein Zugriff' : `GitHub ${res.status}`);
   const repo = await res.json();
   if (repo.permissions && !repo.permissions.push) throw new Error('Token hat keine Schreibrechte');

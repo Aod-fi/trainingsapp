@@ -8,7 +8,28 @@ const $app = document.getElementById('app');
 const $nav = document.getElementById('tabbar');
 
 let records = new Map();
-let draft = null; // Training, das gerade bearbeitet wird
+const K_DRAFT = 'tapp.draft';
+// Training, das gerade bearbeitet wird. Wird gesichert, damit nichts verloren geht,
+// wenn iOS die App im Hintergrund beendet oder man kurz den Tab wechselt.
+let draft = (() => {
+  try {
+    return JSON.parse(localStorage.getItem(K_DRAFT)) || null;
+  } catch {
+    return null;
+  }
+})();
+let lastHash = null;
+
+function persistDraft() {
+  try {
+    if (draft) localStorage.setItem(K_DRAFT, JSON.stringify(draft));
+    else localStorage.removeItem(K_DRAFT);
+  } catch {
+    /* ignorieren */
+  }
+}
+
+const isEditRoute = (h = location.hash) => h.startsWith('#/neu') || h.startsWith('#/bearbeiten');
 let historyFilter = 'alle';
 let prSearch = '';
 
@@ -33,10 +54,16 @@ const routes = [
 function render() {
   refreshRecords();
   const hash = location.hash || '#/';
+  // Fokus merken, damit ein Neuzeichnen das gerade angetippte Feld nicht verliert
+  const focusBind = hash === lastHash ? document.activeElement?.dataset?.bind : null;
   for (const [re, view] of routes) {
     const m = hash.match(re);
     if (m) {
       $app.innerHTML = view(...m.slice(1).map((x) => (x ? decodeURIComponent(x) : x)), hash);
+      if (focusBind) {
+        const el = $app.querySelector(`[data-bind="${CSS.escape(focusBind)}"]`);
+        if (el) el.focus({ preventScroll: true });
+      }
       afterRender(hash);
       updateNav(hash);
       return;
@@ -58,17 +85,17 @@ function updateNav(hash) {
   $nav.querySelectorAll('a').forEach((a) => a.classList.toggle('active', a.dataset.tab === tab));
 }
 
-function afterRender() {
-  window.scrollTo({ top: 0 });
+function afterRender(hash) {
+  // nur beim Seitenwechsel nach oben, nicht beim Neuzeichnen derselben Seite
+  if (hash !== lastHash) window.scrollTo({ top: 0 });
+  lastHash = hash;
+  persistDraft();
 }
 
-window.addEventListener('hashchange', () => {
-  if (!location.hash.startsWith('#/neu') && !location.hash.startsWith('#/bearbeiten')) draft = null;
-  render();
-});
+window.addEventListener('hashchange', () => render());
 store.onChange(() => {
   // Während der Eingabe nicht neu zeichnen, nur Status aktualisieren
-  if (draft) return updateSyncPill();
+  if (isEditRoute()) return updateSyncPill();
   render();
 });
 
@@ -240,15 +267,18 @@ function nextLabel() {
 }
 
 function viewEdit(arg, hash) {
-  if (!draft) {
-    if (hash.startsWith('#/bearbeiten')) {
+  if (hash.startsWith('#/bearbeiten')) {
+    if (!draft || draft.id !== arg) {
       const t = store.getTraining(arg);
       if (!t) return viewNotFound();
       draft = structuredClone(t);
-    } else {
-      const params = new URLSearchParams(arg || '');
+    }
+  } else {
+    const b = findBenchmark(new URLSearchParams(arg || '').get('benchmark'));
+    // Offenen Entwurf eines neuen Trainings fortsetzen, sonst neu beginnen
+    const resumable = draft && !store.getTraining(draft.id) && !(b && !(draft.parts || []).length);
+    if (!resumable) {
       draft = { id: uid(), date: todayISO(), type: 'crossfit', parts: [], notes: '', source: 'app' };
-      const b = findBenchmark(params.get('benchmark'));
       if (b) draft.parts.push(partFromBenchmark('A', b));
     }
   }
@@ -266,6 +296,7 @@ function viewEdit(arg, hash) {
     <div class="actions sticky-actions">
       <button type="button" class="btn btn-primary btn-big" data-action="save">Speichern</button>
     </div>
+    <button type="button" class="btn btn-danger" data-action="discard">${isNew ? 'Entwurf verwerfen' : 'Änderungen verwerfen'}</button>
   </main>`;
 }
 
@@ -358,7 +389,7 @@ function editPart(p, i) {
     body = `
       <div class="row">
         ${p.format === 'fortime' ? `<label class="field"><span>Runden</span><input type="number" inputmode="numeric" data-bind="parts.${i}.rounds" data-type="num" value="${esc(p.rounds ?? '')}" placeholder="1"></label>
-          <label class="field"><span>Time Cap (min)</span><input type="number" inputmode="numeric" data-bind="parts.${i}.timeCapMin" data-type="num" value="${esc(p.timeCapMin ?? '')}"></label>` : ''}
+          <label class="field"><span>Cap (min)</span><input type="number" inputmode="numeric" data-bind="parts.${i}.timeCapMin" data-type="num" value="${esc(p.timeCapMin ?? '')}"></label>` : ''}
         ${p.format === 'amrap' ? `<label class="field"><span>Dauer (min)</span><input type="number" inputmode="numeric" data-bind="parts.${i}.durationMin" data-type="num" value="${esc(p.durationMin ?? '')}"></label>` : ''}
         ${p.format === 'emom' ? `<label class="field"><span>Alle … min</span><input type="number" inputmode="decimal" data-bind="parts.${i}.intervalMin" data-type="num" value="${esc(p.intervalMin ?? '')}" placeholder="1"></label>
           <label class="field"><span>Dauer (min)</span><input type="number" inputmode="numeric" data-bind="parts.${i}.durationMin" data-type="num" value="${esc(p.durationMin ?? '')}"></label>` : ''}
@@ -367,7 +398,7 @@ function editPart(p, i) {
       <div class="movs">
         ${(p.movements || []).map((m, j) => `<div class="mov">
           ${exerciseInput(`parts.${i}.movements.${j}.exercise`, m.exercise)}
-          <input class="mov-reps" data-bind="parts.${i}.movements.${j}.reps" value="${esc(m.reps ?? '')}" placeholder="Wdh.">
+          <input class="mov-reps" data-bind="parts.${i}.movements.${j}.reps" value="${esc(m.reps ?? '')}" placeholder="Wdh. (z. B. 21-15-9)">
           <input class="mov-kg" type="number" inputmode="decimal" step="0.5" data-bind="parts.${i}.movements.${j}.weightKg" data-type="num" value="${esc(m.weightKg ?? '')}" placeholder="kg">
           <button type="button" class="icon-btn sm" data-action="delmov" data-i="${i}" data-j="${j}" aria-label="Bewegung löschen">${icon('x')}</button>
         </div>`).join('')}
@@ -428,8 +459,9 @@ function readInput(el) {
 
 $app.addEventListener('input', (e) => {
   const el = e.target;
-  if (!draft || !el.dataset.bind || el.dataset.rerender) return;
+  if (!draft || !el.dataset.bind || el.dataset.rerender || !isEditRoute()) return;
   setPath(draft, el.dataset.bind, readInput(el));
+  persistDraft();
 });
 
 $app.addEventListener('change', (e) => {
@@ -440,13 +472,16 @@ $app.addEventListener('change', (e) => {
     return render();
   }
   if (el.dataset.action === 'prsearch') return;
-  if (!draft || !el.dataset.bind) return;
+  if (!draft || !el.dataset.bind || !isEditRoute()) return;
   setPath(draft, el.dataset.bind, readInput(el));
+  persistDraft();
   if (el.dataset.rerender) {
     // Beim Wechsel der Übung im Kraftteil letzte Werte vorschlagen
     const m = el.dataset.bind.match(/^parts\.(\d+)\.exercise$/);
     if (m) prefillSets(draft.parts[Number(m[1])]);
-    render();
+    // erst nach dem Fokuswechsel neu zeichnen, damit das neu angetippte Feld aktiv bleibt
+    setTimeout(render, 0);
+    return;
   }
 });
 
@@ -525,6 +560,15 @@ $app.addEventListener('click', async (e) => {
       return render();
     case 'save':
       return save();
+    case 'discard': {
+      const wasNew = !store.getTraining(draft.id);
+      if (!confirm(wasNew ? 'Entwurf verwerfen?' : 'Änderungen verwerfen?')) return;
+      const id = draft.id;
+      draft = null;
+      persistDraft();
+      location.hash = wasNew ? '#/' : `#/training/${id}`;
+      return;
+    }
     case 'delete': {
       const id = btn.dataset.id;
       if (!confirm('Training wirklich löschen?')) return;
@@ -575,8 +619,10 @@ function cleanDraft(t) {
 function save() {
   // alle Felder noch einmal einlesen (z. B. bei Autofill ohne input-Event)
   document.querySelectorAll('#editform [data-bind]').forEach((el) => setPath(draft, el.dataset.bind, readInput(el)));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date || '')) draft.date = todayISO();
   const saved = store.upsertTraining(cleanDraft(draft));
   draft = null;
+  persistDraft();
   refreshRecords();
   const prs = prsOfTraining(records, saved.id);
   location.hash = `#/training/${saved.id}`;
@@ -606,7 +652,7 @@ function partDetail(p) {
   const head = p.benchmark || p.exercise || p.title || FORMATS[p.format];
   const meta = [];
   if (p.category) meta.push(CATEGORIES[p.category]);
-  if (!p.benchmark && p.format !== 'strength' && p.format !== 'other') meta.push(FORMATS[p.format]);
+  if (!p.benchmark && p.format !== 'strength' && p.format !== 'other' && head !== FORMATS[p.format]) meta.push(FORMATS[p.format]);
   if (p.rounds) meta.push(`${p.rounds} Runden`);
   if (p.durationMin) meta.push(`${p.durationMin} min`);
   if (p.intervalMin) meta.push(`alle ${p.intervalMin} min`);
@@ -661,7 +707,7 @@ function viewPRs() {
   const benches = recs.filter((r) => r.kind === 'bench').sort((a, b) => a.name.localeCompare(b.name));
   const maxes = recs.filter((r) => r.kind === 'max');
 
-  return `${header('Personal Records', { right: `<a class="btn btn-ghost sm" href="#/benchmarks">Benchmarks</a>` })}
+  return `${header('Personal Records', { right: syncPill() })}
   <main class="page">
     <input class="search" type="search" placeholder="Übung oder Benchmark suchen" value="${esc(prSearch)}" data-action="prsearch" id="prsearch">
     ${!recs.length ? `<div class="empty"><div class="empty-big">🏆</div><p>Noch keine Bestwerte.<br>Sie entstehen automatisch, sobald du Kraftsätze oder Benchmarks einträgst.</p></div>` : ''}
