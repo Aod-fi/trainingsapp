@@ -1,8 +1,8 @@
 import * as store from './store.js';
 import { testAccess, isConfigured } from './github.js';
-import { BENCHMARKS, EXERCISES, CATEGORIES, FORMATS, TRAINING_TYPES, findBenchmark } from './data.js';
+import { BENCHMARKS, EXERCISES, CATEGORIES, FORMATS, TRAINING_TYPES, REHA_EXERCISES, REHA_GUIDE_URL, WEEK_GOALS, findBenchmark } from './data.js';
 import { computeRecords, prsOfTraining, fmtValue, recTitle, oneRepMax, RM_REPS } from './pr.js';
-import { uid, todayISO, esc, parseTime, fmtTime, num, fmtKg, fmtDate, relDate, roundTo } from './util.js';
+import { uid, todayISO, esc, parseTime, fmtTime, num, fmtKg, fmtDate, relDate, roundTo, weekStartISO, addDaysISO } from './util.js';
 
 const $app = document.getElementById('app');
 const $nav = document.getElementById('tabbar');
@@ -31,6 +31,9 @@ function persistDraft() {
 
 const isEditRoute = (h = location.hash) => h.startsWith('#/neu') || h.startsWith('#/bearbeiten');
 let historyFilter = 'alle';
+// Morgen-Check auf dem Startbildschirm: Eingabe, bis gespeichert wird
+let chk = null;
+let chkEditing = false;
 let prSearch = '';
 
 function refreshRecords() {
@@ -49,6 +52,7 @@ const routes = [
   [/^#\/pr\/(.+)$/, viewPR],
   [/^#\/benchmarks$/, viewBenchmarks],
   [/^#\/einstellungen$/, viewSettings],
+  [/^#\/check$/, viewChecks],
 ];
 
 function render() {
@@ -138,18 +142,20 @@ function icon(name) {
 }
 
 function trainingSummary(t) {
+  const reha = (t.reha || []).length ? `Schulter-Programm ${t.reha.length}/${REHA_EXERCISES.length}` : '';
   if (t.type !== 'crossfit') {
     const bits = [];
     if (t.durationMin) bits.push(`${t.durationMin} min`);
+    if (reha) bits.push(reha);
     if (t.notes) bits.push(t.notes.split('\n')[0]);
     return bits.join(' · ');
   }
-  return (t.parts || [])
+  return [reha, ...(t.parts || [])
     .map((p) => {
       const name = p.benchmark || p.exercise || p.title || FORMATS[p.format] || '';
       const res = resultText(p);
       return `${name}${res ? ` ${res}` : ''}`;
-    })
+    })]
     .filter(Boolean)
     .join(' · ');
 }
@@ -175,10 +181,27 @@ function trainingCard(t) {
   return `<a class="card tcard" href="#/training/${t.id}">
     <div class="tcard-icon">${type.icon}</div>
     <div class="tcard-body">
-      <div class="tcard-top"><span class="tcard-date">${esc(relDate(t.date))}</span><span class="tag">${esc(type.label)}</span>${prs.length ? `<span class="tag tag-pr">${prs.length} PR</span>` : ''}</div>
+      <div class="tcard-top"><span class="tcard-date">${esc(relDate(t.date))}</span><span class="tag">${esc(type.label)}</span>${prs.length ? `<span class="tag tag-pr">${prs.length} PR</span>` : ''}${painTag(t.shoulderPain)}</div>
       <div class="tcard-sum">${esc(trainingSummary(t)) || '<span class="muted">Ohne Details</span>'}</div>
     </div>
   </a>`;
+}
+
+function painLevel(v) {
+  return v == null ? '' : v <= 3 ? 'ok' : v <= 6 ? 'warn' : 'bad';
+}
+function painTag(v) {
+  return v == null ? '' : `<span class="tag tag-pain-${painLevel(v)}">Schulter ${v}</span>`;
+}
+
+// Tipp-Skala, z. B. Schulter 0–10 oder Schlaf 1–5
+function scale({ action, field, from, to, value, kind = 'pain', labels }) {
+  const btns = [];
+  for (let n = from; n <= to; n++) {
+    const cls = value === n ? ` on ${kind === 'pain' ? `lv-${painLevel(n)}` : 'lv-sleep'}` : '';
+    btns.push(`<button type="button" class="sc${cls}" data-action="${action}" ${field ? `data-field="${field}"` : ''} data-value="${n}" aria-pressed="${value === n}">${n}</button>`);
+  }
+  return `<div class="scale" style="--n:${to - from + 1}">${btns.join('')}</div>${labels ? `<div class="scale-lbl"><span>${labels[0]}</span><span>${labels[1]}</span></div>` : ''}`;
 }
 
 function sparkline(rec, w = 280, h = 64) {
@@ -210,12 +233,7 @@ function sparkline(rec, w = 280, h = 64) {
 function viewHome() {
   const all = store.trainings();
   const today = todayISO();
-  const weekStart = (() => {
-    const d = new Date(today);
-    const day = (d.getDay() + 6) % 7;
-    d.setDate(d.getDate() - day);
-    return d.toISOString().slice(0, 10);
-  })();
+  const weekStart = weekStartISO(today);
   const month = today.slice(0, 7);
   const thisWeek = all.filter((t) => t.date >= weekStart).length;
   const thisMonth = all.filter((t) => t.date.startsWith(month)).length;
@@ -235,12 +253,105 @@ function viewHome() {
       <div class="stat"><div class="stat-num">${thisMonth}</div><div class="stat-lbl">diesen Monat</div></div>
       <div class="stat"><div class="stat-num">${records.size ? [...records.values()].filter((r) => r.best).length : 0}</div><div class="stat-lbl">Bestwerte</div></div>
     </section>
+    ${morningCheck(today)}
     <a class="cta" href="#/neu">${icon('plus')}<span>Training eintragen</span></a>
+    ${weekGoals(all.filter((t) => t.date >= weekStart && t.date <= addDaysISO(weekStart, 6)))}
     ${!isConfigured(store.getConfig()) ? `<a class="card notice" href="#/einstellungen"><strong>GitHub verbinden</strong><span>Noch wird nur auf diesem Gerät gespeichert. Tippe hier, um iPhone und Laptop zu synchronisieren.</span></a>` : ''}
     ${recentPRs.length ? `<h2 class="sec">Neue PRs</h2><div class="hscroll">${recentPRs.slice(0, 8).map(({ rec, p }) => `<a class="card prmini" href="#/pr/${encodeURIComponent(rec.key)}"><div class="prmini-val">${esc(fmtValue(rec, p))}</div><div class="prmini-name">${esc(recTitle(rec))}</div><div class="muted small">${esc(relDate(p.date))}</div></a>`).join('')}</div>` : ''}
     <h2 class="sec">Letzte Trainings</h2>
     ${all.length ? all.slice(0, 6).map(trainingCard).join('') : `<div class="empty"><div class="empty-big">📓</div><p>Dein Trainingsbuch ist noch leer.<br>Trag dein erstes Training ein oder schick Claude ein Foto vom Whiteboard.</p></div>`}
     ${all.length > 6 ? `<a class="link-more" href="#/verlauf">Alle ${all.length} Trainings</a>` : ''}
+  </main>`;
+}
+
+function weekGoals(week) {
+  return `<section class="card goals"><div class="goals-head"><strong>Diese Woche</strong><span class="muted small">Ziel laut Plan</span></div>
+    ${WEEK_GOALS.map((g) => {
+      const n = week.filter(g.match).length;
+      const pct = Math.min(100, Math.round((n / g.goal) * 100));
+      return `<div class="goal"><span>${esc(g.label)}</span><span class="goal-bar"><i style="width:${pct}%" class="${n >= g.goal ? 'done' : ''}"></i></span><span class="goal-num">${n}/${g.goal}</span></div>`;
+    }).join('')}
+  </section>`;
+}
+
+function lastCheckBefore(date) {
+  return store.checkins().find((c) => c.date < date && c.date >= addDaysISO(date, -3)) || null;
+}
+
+// Hinweis nach der Schmerzregel: am nächsten Morgen nicht schlechter als vorher
+function painHint(c) {
+  if (c?.shoulder == null) return '';
+  const prev = lastCheckBefore(c.date);
+  if (c.shoulder >= 6) return `<p class="hint hint-bad">Schulter ${c.shoulder}/10: Heute kein Kipping, keine Snatches, keine Push-ups. Nur Schulter-Programm und Isometrie. Bleibt es so hoch, ärztlich abklären lassen.</p>`;
+  if (prev?.shoulder != null && c.shoulder > prev.shoulder) return `<p class="hint hint-warn">Schlechter als beim letzten Check (${prev.shoulder} → ${c.shoulder}). Vermutlich war das letzte Training zu viel: heute bei Schulter-Übungen eine Stufe zurück.</p>`;
+  if (c.shoulder <= 3) return `<p class="hint hint-ok">Im grünen Bereich. Die Schmerzregel hält.</p>`;
+  return '';
+}
+
+function morningCheck(today) {
+  const saved = store.getCheckin(today);
+  if (saved && !chkEditing) {
+    const bits = [];
+    if (saved.shoulder != null) bits.push(`Schulter ${saved.shoulder}`);
+    if (saved.sleep != null) bits.push(`Schlaf ${saved.sleep}/5`);
+    if (saved.weightKg != null) bits.push(fmtKg(saved.weightKg));
+    return `<section class="card chk chk-done">
+      <div class="chk-row"><strong>Morgen-Check ✓</strong><span class="muted small">${esc(bits.join(' · '))}</span></div>
+      ${painHint(saved)}
+      <div class="row gap"><button type="button" class="btn btn-ghost sm" data-action="chkedit">Ändern</button><a class="btn btn-ghost sm" href="#/check">Verlauf</a></div>
+    </section>`;
+  }
+  if (!chk || chk.date !== today) chk = saved ? { ...saved } : { date: today, shoulder: null, sleep: null, weightKg: null };
+  return `<section class="card chk">
+    <div class="chk-row"><strong>Morgen-Check</strong><a class="muted small" href="#/check">Verlauf</a></div>
+    <div class="chk-q">Linke Schulter jetzt <span class="muted">(0 = nichts, 10 = maximal)</span></div>
+    ${scale({ action: 'chk', field: 'shoulder', from: 0, to: 10, value: chk.shoulder })}
+    <div class="chk-q">Wie hast du geschlafen?</div>
+    ${scale({ action: 'chk', field: 'sleep', from: 1, to: 5, value: chk.sleep, kind: 'sleep', labels: ['sehr schlecht', 'sehr gut'] })}
+    <div class="row chk-weight">
+      <label class="field"><span>Gewicht (kg, optional)</span><input type="text" inputmode="decimal" data-bind="chkweight" data-chk="weightKg" value="${esc(chk.weightKg ?? '')}" placeholder="z. B. 58,0"></label>
+      <button type="button" class="btn btn-primary" data-action="chksave">Speichern</button>
+    </div>
+    ${painHint(chk)}
+  </section>`;
+}
+
+/* ---------- Morgen-Check-Verlauf ---------- */
+
+function lineChart(points, { min, max, invert = false, w = 300, h = 90, cls = '' }) {
+  if (points.length < 2) return '<p class="muted small">Ab zwei Einträgen siehst du hier einen Verlauf.</p>';
+  const pad = 8;
+  const t0 = new Date(points[0].date).getTime();
+  const t1 = new Date(points[points.length - 1].date).getTime() || t0 + 1;
+  const x = (d) => pad + ((new Date(d).getTime() - t0) / Math.max(1, t1 - t0)) * (w - 2 * pad);
+  const y = (v) => {
+    const r = (v - min) / Math.max(0.001, max - min);
+    return pad + (invert ? r : 1 - r) * (h - 2 * pad);
+  };
+  const line = points.map((p) => `${x(p.date).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+  const dots = points.map((p) => `<circle cx="${x(p.date).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="3" class="ch-dot ${p.cls || ''}"/>`).join('');
+  return `<svg class="spark ch ${cls}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Verlauf"><polyline points="${line}" class="spark-line"/>${dots}</svg>`;
+}
+
+function viewChecks() {
+  const list = store.checkins();
+  const asc = [...list].reverse().slice(-60);
+  const sh = asc.filter((c) => c.shoulder != null).map((c) => ({ date: c.date, v: c.shoulder, cls: `lv-${painLevel(c.shoulder)}` }));
+  const sl = asc.filter((c) => c.sleep != null).map((c) => ({ date: c.date, v: c.sleep }));
+  const wt = asc.filter((c) => c.weightKg != null).map((c) => ({ date: c.date, v: c.weightKg }));
+  const wMin = wt.length ? Math.min(...wt.map((p) => p.v)) - 0.5 : 0;
+  const wMax = wt.length ? Math.max(...wt.map((p) => p.v)) + 0.5 : 1;
+  const sore = store.trainings().filter((t) => t.shoulderPain >= 4).slice(0, 10);
+  const last = (arr, f = (v) => v) => (arr.length ? f(arr[arr.length - 1].v) : '–');
+  return `${header('Morgen-Check', { back: '#/', right: syncPill() })}
+  <main class="page">
+    <section class="card"><div class="goals-head"><strong>Schulter links</strong><span class="muted small">zuletzt ${esc(last(sh))}/10</span></div>${lineChart(sh, { min: 0, max: 10, invert: true })}<p class="muted small">Oben = schmerzfrei. Ziel: dauerhaft 0–3.</p></section>
+    <section class="card"><div class="goals-head"><strong>Schlaf</strong><span class="muted small">zuletzt ${esc(last(sl))}/5</span></div>${lineChart(sl, { min: 1, max: 5 })}</section>
+    <section class="card"><div class="goals-head"><strong>Gewicht</strong><span class="muted small">zuletzt ${esc(last(wt, fmtKg))}</span></div>${lineChart(wt, { min: wMin, max: wMax })}</section>
+    ${sore.length ? `<h2 class="sec">Trainings mit Schulter ab 4</h2>${sore.map(trainingCard).join('')}` : ''}
+    <h2 class="sec">Einträge</h2>
+    ${list.length ? `<div class="card chk-list">${list.slice(0, 30).map((c) => `<div class="chk-li"><span>${esc(relDate(c.date))}</span><span>${c.shoulder != null ? painTag(c.shoulder) : ''}</span><span class="muted small">${c.sleep != null ? `Schlaf ${c.sleep}/5` : ''}${c.weightKg != null ? ` · ${esc(fmtKg(c.weightKg))}` : ''}</span></div>`).join('')}</div>` : '<div class="empty"><p>Noch kein Morgen-Check. Mach den ersten auf dem Startbildschirm.</p></div>'}
+    <p class="muted small center"><a class="accent" href="${REHA_GUIDE_URL}" target="_blank" rel="noopener">Schulter-Programm ansehen</a></p>
   </main>`;
 }
 
@@ -292,12 +403,26 @@ function viewEdit(arg, hash) {
       ${Object.entries(TRAINING_TYPES).map(([k, v]) => `<button type="button" class="chip ${draft.type === k ? 'on' : ''}" data-action="type" data-value="${k}">${v.icon} ${esc(v.label)}</button>`).join('')}
     </div>
     ${draft.type === 'crossfit' ? editCrossfit() : editOther()}
+    ${editShoulder()}
     <label class="field"><span>Notizen</span><textarea data-bind="notes" rows="3" placeholder="Wie lief's? Schmerzen, Skalierung, Gefühl …">${esc(draft.notes)}</textarea></label>
     <div class="actions sticky-actions">
       <button type="button" class="btn btn-primary btn-big" data-action="save">Speichern</button>
     </div>
     <button type="button" class="btn btn-danger" data-action="discard">${isNew ? 'Entwurf verwerfen' : 'Änderungen verwerfen'}</button>
   </main>`;
+}
+
+function editShoulder() {
+  const done = new Set(draft.reha || []);
+  const open = draft.type === 'reha' || done.size > 0 || draft.rehaOpen;
+  return `<section class="card shoulder">
+    <div class="chk-q"><strong>Linke Schulter im Training</strong> <span class="muted">(0–10, bis 3 ist okay)</span></div>
+    ${scale({ action: 'pain', from: 0, to: 10, value: draft.shoulderPain ?? null })}
+    ${open ? `<div class="chk-q reha-head"><strong>Schulter-Programm</strong><button type="button" class="link-btn" data-action="rehaall">${done.size === REHA_EXERCISES.length ? 'Keine' : 'Alle'}</button></div>
+    <div class="chips chips-sm">${REHA_EXERCISES.map((r) => `<button type="button" class="chip chip-sm ${done.has(r.id) ? 'on' : ''}" data-action="reha" data-value="${r.id}">${esc(r.name)} <span class="chip-dose">${esc(r.dose)}</span></button>`).join('')}</div>
+    <a class="muted small" href="${REHA_GUIDE_URL}" target="_blank" rel="noopener">Anleitung mit Bildern öffnen</a>`
+    : `<button type="button" class="btn btn-ghost sm" data-action="rehaopen">${icon('plus')} Schulter-Programm gemacht</button>`}
+  </section>`;
 }
 
 function editOther() {
@@ -459,6 +584,10 @@ function readInput(el) {
 
 $app.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.dataset.chk && chk) {
+    chk[el.dataset.chk] = num(el.value);
+    return;
+  }
   if (!draft || !el.dataset.bind || el.dataset.rerender || !isEditRoute()) return;
   setPath(draft, el.dataset.bind, readInput(el));
   persistDraft();
@@ -471,7 +600,7 @@ $app.addEventListener('change', (e) => {
     draft.parts.push(partFromBenchmark(nextLabel(), b));
     return render();
   }
-  if (el.dataset.action === 'prsearch') return;
+  if (el.dataset.action === 'prsearch' || el.dataset.chk) return;
   if (!draft || !el.dataset.bind || !isEditRoute()) return;
   setPath(draft, el.dataset.bind, readInput(el));
   persistDraft();
@@ -506,6 +635,47 @@ $app.addEventListener('click', async (e) => {
   const v = btn.dataset.value;
 
   switch (a) {
+    case 'chk': {
+      const f = btn.dataset.field;
+      const n = Number(v);
+      chk[f] = chk[f] === n ? null : n;
+      return render();
+    }
+    case 'chksave': {
+      const w = document.querySelector('[data-chk="weightKg"]');
+      if (w) chk.weightKg = num(w.value);
+      if (chk.shoulder == null && chk.sleep == null && chk.weightKg == null) return toast('Bitte mindestens einen Wert antippen', true);
+      const c = { ...chk };
+      for (const k of ['shoulder', 'sleep', 'weightKg']) if (c[k] == null) delete c[k];
+      store.upsertCheckin(c);
+      chkEditing = false;
+      chk = null;
+      toast('Morgen-Check gespeichert');
+      return render();
+    }
+    case 'chkedit':
+      chkEditing = true;
+      chk = null;
+      return render();
+    case 'pain': {
+      const n = Number(v);
+      draft.shoulderPain = draft.shoulderPain === n ? null : n;
+      return render();
+    }
+    case 'rehaopen':
+      draft.rehaOpen = true;
+      return render();
+    case 'reha': {
+      const set = new Set(draft.reha || []);
+      if (set.has(v)) set.delete(v);
+      else set.add(v);
+      draft.reha = REHA_EXERCISES.map((r) => r.id).filter((id) => set.has(id));
+      return render();
+    }
+    case 'rehaall':
+      draft.reha = (draft.reha || []).length === REHA_EXERCISES.length ? [] : REHA_EXERCISES.map((r) => r.id);
+      draft.rehaOpen = true;
+      return render();
     case 'type':
       draft.type = v;
       if (v === 'crossfit' && !draft.parts) draft.parts = [];
@@ -600,6 +770,9 @@ function relabel() {
 
 function cleanDraft(t) {
   const c = structuredClone(t);
+  delete c.rehaOpen;
+  if (!(c.reha || []).length) delete c.reha;
+  if (c.shoulderPain == null) delete c.shoulderPain;
   if (c.type !== 'crossfit') {
     delete c.parts;
   } else {
@@ -641,6 +814,7 @@ function viewTraining(id) {
   return `${header(fmtDate(t.date), { back: '#/verlauf', right: `<a class="icon-btn" href="#/bearbeiten/${t.id}" aria-label="Bearbeiten">${icon('edit')}</a>` })}
   <main class="page">
     <div class="detail-type">${type.icon} ${esc(type.label)}${t.durationMin ? ` · ${t.durationMin} min` : ''}${t.source === 'claude' ? ' · <span class="muted">von Claude eingetragen</span>' : ''}</div>
+    ${t.shoulderPain != null || (t.reha || []).length ? `<section class="card"><div class="part-sub">Linke Schulter</div>${t.shoulderPain != null ? `<p>${painTag(t.shoulderPain)}</p>` : ''}${(t.reha || []).length ? `<div class="chips chips-sm">${REHA_EXERCISES.filter((r) => t.reha.includes(r.id)).map((r) => `<span class="chip chip-sm on">${esc(r.name)}</span>`).join('')}</div>` : ''}</section>` : ''}
     ${prs.length ? `<div class="card prbanner">${icon('trophy')}<div>${prs.map(({ rec, point }) => `<div><strong>Neuer PR:</strong> ${esc(recTitle(rec))} – ${esc(fmtValue(rec, point))}</div>`).join('')}</div></div>` : ''}
     ${(t.parts || []).map((p) => partDetail(p, prKeys)).join('')}
     ${t.notes ? `<section class="card"><div class="part-sub">Notizen</div><p class="pre">${esc(t.notes)}</p></section>` : ''}
@@ -809,7 +983,7 @@ function viewSettings() {
       <p class="muted small">${store.trainings().length} Trainings gespeichert.</p>
       <button type="button" class="btn btn-ghost" data-action="export">Als JSON exportieren</button>
     </section>
-    <p class="muted small center">TrainingsApp v0.0.1</p>
+    <p class="muted small center">TrainingsApp v0.0.3</p>
   </main>`;
 }
 

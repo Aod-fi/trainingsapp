@@ -20,11 +20,33 @@ export const FORMATS = {
 
 export const TRAINING_TYPES = {
   crossfit: { label: 'CrossFit', icon: '🏋️' },
+  reha: { label: 'Reha', icon: '🩹' },
+  cardio: { label: 'Cardio', icon: '🚴' },
   laufen: { label: 'Laufen', icon: '🏃' },
   padel: { label: 'Padel', icon: '🎾' },
   mobility: { label: 'Mobility', icon: '🧘' },
   sonstiges: { label: 'Sonstiges', icon: '✨' },
 };
+
+// Schulter-Programm Phase 1 (linke Schulter). Bebilderte Anleitung: REHA_GUIDE_URL
+export const REHA_GUIDE_URL = 'https://claude.ai/artifact/BKeufX9TnTVPConxrvVkcV';
+export const REHA_EXERCISES = [
+  { id: 'bws', name: 'BWS-Rolle', dose: '2 × 8' },
+  { id: 'tuer', name: 'Türrahmen-Dehnung', dose: '2 × 30 s' },
+  { id: 'wall', name: 'Wall Slide', dose: '3 × 10' },
+  { id: 'yraise', name: 'Y-Raise', dose: '3 × 10' },
+  { id: 'er', name: 'Außenrotation Band', dose: '3 × 15' },
+  { id: 'plus', name: 'Push-up Plus', dose: '3 × 12' },
+  { id: 'scap', name: 'Scap Pull-up', dose: '3 × 8' },
+  { id: 'iso', name: 'Isometrie (Flare)', dose: '5 × 45 s' },
+];
+
+// Wochenziele laut Reha- und Aufbauplan
+export const WEEK_GOALS = [
+  { key: 'crossfit', label: 'CrossFit', goal: 4, match: (t) => t.type === 'crossfit' },
+  { key: 'cardio', label: 'Cardio locker', goal: 2, match: (t) => t.type === 'cardio' || t.type === 'laufen' },
+  { key: 'reha', label: 'Schulter-Programm', goal: 3, match: (t) => t.type === 'reha' || (t.reha || []).length > 0 },
+];
 
 const ex = (name, cat) => ({ name, cat });
 
