@@ -983,7 +983,7 @@ function viewSettings() {
       <p class="muted small">${store.trainings().length} Trainings gespeichert.</p>
       <button type="button" class="btn btn-ghost" data-action="export">Als JSON exportieren</button>
     </section>
-    <p class="muted small center">TrainingsApp v0.0.3</p>
+    <p class="muted small center">TrainingsApp v0.0.3.1</p>
   </main>`;
 }
 
@@ -1052,5 +1052,22 @@ render();
 store.sync();
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  // Neue Versionen sofort holen: beim Start und bei jeder Rückkehr in die App nachsehen,
+  // und neu laden, sobald der neue Service Worker übernimmt (nicht mitten in einer Eingabe).
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded || isEditRoute()) return;
+    reloaded = true;
+    location.reload();
+  });
+  navigator.serviceWorker
+    .register('./sw.js', { updateViaCache: 'none' })
+    .then((reg) => {
+      reg.update().catch(() => {});
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') reg.update().catch(() => {});
+      });
+    })
+    .catch(() => {});
 }
