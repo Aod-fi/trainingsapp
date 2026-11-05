@@ -5,7 +5,9 @@ const K_CFG = 'tapp.config';
 const K_SHA = 'tapp.sha';
 const K_DIRTY = 'tapp.dirty';
 
-const emptyDb = () => ({ version: 1, trainings: [] });
+const emptyDb = () => ({ version: 1, trainings: [], checkins: [] });
+// Listen, die beim Sync Eintrag für Eintrag zusammengeführt werden
+const LISTS = ['trainings', 'checkins'];
 
 function read(key, fallback) {
   try {
@@ -24,6 +26,7 @@ function write(key, value) {
 }
 
 let db = read(K_DB, emptyDb());
+if (!db.checkins) db.checkins = [];
 let status = { state: 'idle', message: '' };
 const listeners = new Set();
 
@@ -82,14 +85,42 @@ export function deleteTraining(id) {
   sync();
 }
 
-function merge(remote, local) {
+function mergeList(remoteList = [], localList = []) {
   const map = new Map();
-  for (const t of remote.trainings || []) map.set(t.id, t);
-  for (const t of local.trainings || []) {
+  for (const t of remoteList) map.set(t.id, t);
+  for (const t of localList) {
     const r = map.get(t.id);
     if (!r || (t.updatedAt || '') > (r.updatedAt || '')) map.set(t.id, t);
   }
-  return { ...remote, version: 1, trainings: [...map.values()] };
+  return [...map.values()];
+}
+
+function merge(remote, local) {
+  const out = { ...remote, version: 1 };
+  for (const k of LISTS) out[k] = mergeList(remote[k], local[k]);
+  return out;
+}
+
+/* ---------- Morgen-Check (Schulter, Schlaf, Gewicht) ---------- */
+
+export function checkins() {
+  return (db.checkins || []).filter((c) => !c.deleted).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export function getCheckin(date) {
+  return (db.checkins || []).find((c) => c.date === date && !c.deleted) || null;
+}
+
+export function upsertCheckin(c) {
+  const now = new Date().toISOString();
+  const id = c.id || `chk-${c.date}`;
+  const idx = db.checkins.findIndex((x) => x.id === id);
+  const rec = { ...c, id, updatedAt: now, createdAt: c.createdAt || now };
+  if (idx >= 0) db.checkins[idx] = rec;
+  else db.checkins.push(rec);
+  persistLocal();
+  sync();
+  return rec;
 }
 
 let syncing = null;
@@ -114,10 +145,10 @@ async function doSync(retry = true) {
   try {
     const { data: remote, sha } = await loadFile(cfg);
     const merged = merge(remote || emptyDb(), db);
-    const changed = !remote || JSON.stringify(merged.trainings) !== JSON.stringify(remote.trainings);
+    const changed = !remote || LISTS.some((k) => JSON.stringify(merged[k] || []) !== JSON.stringify(remote[k] || []));
     let newSha = sha;
     if (changed) {
-      newSha = await saveFile(cfg, merged, sha, `Trainings aktualisiert (${new Date().toLocaleString('de-DE')})`);
+      newSha = await saveFile(cfg, merged, sha, `Trainingsbuch aktualisiert (${new Date().toLocaleString('de-DE')})`);
     }
     db = merged;
     write(K_DB, db);
