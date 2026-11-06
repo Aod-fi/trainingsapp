@@ -295,3 +295,26 @@ textarea { resize: vertical; min-height: 0; }
 .chk-li > :last-child { text-align: right; }
 .spark.ch { height: auto; aspect-ratio: 300 / 90; }
 .chk-done .chk-row { flex-wrap: wrap; justify-content: flex-start; }
+
+/* v0.0.4: Schulter-Plan, Hinweise, Timer, Laufen */
+.plan .goal { grid-template-columns: 11em 1fr 2.6em; }
+.plan-txt { margin: 0; }
+.crit-need { margin: -4px 0 4px; }
+.act-chip { justify-self: start; text-align: left; }
+.part .hint { margin: 0 0 10px; }
+.bench-hint .link-btn { margin-left: 6px; }
+.part > .btn.sm svg { width: 16px; height: 16px; }
+.tm-run { display: grid; gap: 14px; justify-items: center; text-align: center; padding-top: 28px; }
+.tm-mode { font-size: 13px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 700; }
+.tm-time { font-size: clamp(72px, 26vw, 140px); font-weight: 800; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+.tm-run.done .tm-time { font-size: clamp(48px, 16vw, 96px); color: var(--accent); }
+.tm-sub { color: var(--muted); font-size: 17px; min-height: 1.4em; }
+.tm-track { width: 100%; height: 8px; border-radius: 99px; background: var(--card2); overflow: hidden; }
+.tm-track i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s linear; }
+.tm-run.rest .tm-time, .tm-run.prep .tm-time { color: var(--warn); }
+.tm-run.rest .tm-track i { background: var(--warn); }
+.tm-round { max-width: 420px; padding: 26px; font-size: 22px; }
+.tm-ctrl { justify-content: center; }
+.tm-ctrl .btn { min-width: 120px; }
+.tm-run .btn-big { max-width: 420px; }
+@media (max-width: 380px) { .plan .goal { grid-template-columns: 8.5em 1fr 2.6em; font-size: 13px; } }

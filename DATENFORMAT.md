@@ -53,6 +53,8 @@ Eine Datei mit allen Trainings. Claude trägt Trainings aus Whiteboard-Fotos dir
 ```
 
 - `shoulderPain`: Schmerz linke Schulter im Training, 0–10 (optional, bei jeder Trainingsart).
+- `activation`: `true`, wenn die 5-Minuten-Aktivierung vor dem WOD gemacht wurde (zählt nicht als volles Schulter-Programm).
+- `distanceKm`: Distanz bei Laufen/Cardio; `timeSec`: Laufzeit bei Laufen (daraus Pace, `durationMin` wird daraus gerundet).
 - `reha`: erledigte Übungen des Schulter-Programms, IDs aus `REHA_EXERCISES` in js/data.js (optional, bei jeder Trainingsart).
 - `checkins`: Morgen-Check, höchstens einer pro Tag (`id` = `chk-` + Datum). `shoulder` 0–10, `sleep` 1–5, `weightKg` optional.
 - Beim Sync werden `trainings` und `checkins` Eintrag für Eintrag nach `updatedAt` zusammengeführt.

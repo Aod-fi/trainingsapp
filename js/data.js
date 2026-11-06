@@ -41,6 +41,31 @@ export const REHA_EXERCISES = [
   { id: 'iso', name: 'Isometrie (Flare)', dose: '5 × 45 s' },
 ];
 
+// Kurzversion vor dem WOD (zählt nicht als volles Programm)
+export const REHA_ACTIVATION = 'Wall Slide, Außenrotation, Scap Pull-up · je 1–2 Sätze';
+
+// Start des Schulter-Programms (Phase 1 = Woche 1–4, Phase 2 = Woche 5–10, danach Phase 3)
+export const REHA_START = '2026-11-05';
+
+// Schulterkritische Übungen bis zur Rückkehr (Phase 3): Ersatz laut Plan und zugehöriges Kriterium
+export const SHOULDER_RISK = [
+  { names: ['Pull-up', 'Chest-to-Bar Pull-up', 'Kipping Pull-up', 'Butterfly Pull-up'], alt: 'Strict Pull-ups oder Ring Rows, langsam ablassen', crit: 'kipping' },
+  { names: ['Bar Muscle-up', 'Ring Muscle-up'], alt: 'Strict Pull-ups + erhöhte Push-ups', crit: 'mu' },
+  { names: ['Ring Dip'], alt: 'Push-ups erhöht oder Floor Press', crit: 'mu' },
+  { names: ['Toes-to-Bar', 'Knees-to-Elbow'], alt: 'Strict Hanging Knee Raises, V-ups oder Lying Leg Raises', crit: 't2b' },
+  { names: ['Push-up'], alt: 'Erhöht (Box) und nur bis kurz über den Boden', crit: 'pushup' },
+  { names: ['Snatch', 'Power Snatch', 'Hang Squat Snatch', 'Squat Snatch', 'Muscle Snatch', 'Hang Power Snatch'], alt: 'Clean & Jerk, Power Clean oder leichter Dumbbell Snatch', crit: 'snatch' },
+];
+
+// Rückkehr-Kriterien aus Phase 3 des Plans. Werte werden aus den Trainings berechnet.
+export const RETURN_CRITERIA = [
+  { key: 'kipping', label: 'Kipping Pull-ups / C2B', need: 'Strict Pull-ups am Stück', target: 10, kind: 'max', exercise: 'Strict Pull-up', start: '3 × 5 außerhalb des WODs, kein Butterfly' },
+  { key: 't2b', label: 'Toes-to-Bar', need: 'Strict Toes-to-Bar am Stück', target: 5, kind: 'max', exercise: 'Strict Toes-to-Bar', start: '3 × 5 mit kurzem Swing, im WOD kleine Sets' },
+  { key: 'pushup', label: 'Push-ups vom Boden', need: 'Erhöhte Push-ups mit Plus am Stück', target: 20, kind: 'max', exercise: 'Push-up erhöht', start: '3 × 10 vom Boden, unten kurz stoppen' },
+  { key: 'snatch', label: 'Snatch', need: 'Trainings mit Overhead Squat oder Snatch Balance, Schulter höchstens 3', target: 3, kind: 'count', exercises: ['Overhead Squat', 'Snatch Balance'], start: 'Power Snatch aus dem Hang bei 50–60 %, Griff etwas enger' },
+  { key: 'mu', label: 'Muscle-ups, Ring Dips', need: 'Tage mit Morgen-Check bis 3 in den letzten 4 Wochen', target: 20, kind: 'calm', start: 'Transition-Drills am tiefen Ring, dann Einzel-Wiederholungen' },
+];
+
 // Wochenziele laut Reha- und Aufbauplan
 export const WEEK_GOALS = [
   { key: 'crossfit', label: 'CrossFit', goal: 4, match: (t) => t.type === 'crossfit' },
@@ -82,16 +107,21 @@ export const EXERCISES = [
   // Turnen
   ex('Pull-up', 'Turnen'),
   ex('Strict Pull-up', 'Turnen'),
+  ex('Ring Row', 'Turnen'),
   ex('Chest-to-Bar Pull-up', 'Turnen'),
   ex('Bar Muscle-up', 'Turnen'),
   ex('Ring Muscle-up', 'Turnen'),
   ex('Toes-to-Bar', 'Turnen'),
+  ex('Strict Toes-to-Bar', 'Turnen'),
+  ex('Hanging Knee Raise', 'Turnen'),
+  ex('V-up', 'Turnen'),
   ex('Knees-to-Elbow', 'Turnen'),
   ex('Handstand Push-up', 'Turnen'),
   ex('Strict Handstand Push-up', 'Turnen'),
   ex('Handstand Walk', 'Turnen'),
   ex('Ring Dip', 'Turnen'),
   ex('Push-up', 'Turnen'),
+  ex('Push-up erhöht', 'Turnen'),
   ex('Air Squat', 'Turnen'),
   ex('Pistol', 'Turnen'),
   ex('Burpee', 'Turnen'),
@@ -137,6 +167,17 @@ export const BENCHMARKS = [
   { name: 'Michael', group: 'Hero', format: 'fortime', rounds: 3, movements: [mv('Run', '800 m'), mv('Back Extension', '50'), mv('Sit-up', '50')] },
   { name: 'Nate', group: 'Hero', format: 'amrap', durationMin: 20, movements: [mv('Ring Muscle-up', '2'), mv('Handstand Push-up', '4'), mv('Kettlebell Swing', '8', '32/24')] },
 ];
+
+// Sucht einen Benchmark-Namen in einem Freitext (z. B. vom Whiteboard)
+export function detectBenchmark(text) {
+  if (!text) return null;
+  for (const b of BENCHMARKS) {
+    const short = b.name.length <= 2;
+    const re = new RegExp(`(^|[^A-Za-zÄÖÜäöüß])${b.name}($|[^A-Za-zÄÖÜäöüß])`, short ? '' : 'i');
+    if (re.test(text)) return b;
+  }
+  return null;
+}
 
 export function findBenchmark(name) {
   if (!name) return null;
