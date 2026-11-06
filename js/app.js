@@ -1,6 +1,7 @@
 import * as store from './store.js';
 import { testAccess, isConfigured } from './github.js';
-import { BENCHMARKS, EXERCISES, CATEGORIES, FORMATS, TRAINING_TYPES, REHA_EXERCISES, REHA_GUIDE_URL, WEEK_GOALS, findBenchmark } from './data.js';
+import { BENCHMARKS, EXERCISES, CATEGORIES, FORMATS, TRAINING_TYPES, REHA_EXERCISES, REHA_GUIDE_URL, REHA_ACTIVATION, REHA_START, SHOULDER_RISK, RETURN_CRITERIA, WEEK_GOALS, findBenchmark, detectBenchmark } from './data.js';
+import * as timer from './timer.js';
 import { computeRecords, prsOfTraining, fmtValue, recTitle, oneRepMax, RM_REPS } from './pr.js';
 import { uid, todayISO, esc, parseTime, fmtTime, num, fmtKg, fmtDate, relDate, roundTo, weekStartISO, addDaysISO } from './util.js';
 
@@ -53,6 +54,7 @@ const routes = [
   [/^#\/benchmarks$/, viewBenchmarks],
   [/^#\/einstellungen$/, viewSettings],
   [/^#\/check$/, viewChecks],
+  [/^#\/timer(?:\?(.*))?$/, viewTimer],
 ];
 
 function render() {
@@ -136,16 +138,19 @@ function icon(name) {
     x: '<path d="M18 6L6 18M6 6l12 12"/>',
     trophy: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0zM17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
     up: '<path d="M18 15l-6-6-6 6"/>',
+    timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6M12 2v3"/>',
     down: '<path d="M6 9l6 6 6-6"/>',
   }[name];
   return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 }
 
 function trainingSummary(t) {
-  const reha = (t.reha || []).length ? `Schulter-Programm ${t.reha.length}/${REHA_EXERCISES.length}` : '';
+  const reha = [(t.reha || []).length ? `Schulter-Programm ${t.reha.length}/${REHA_EXERCISES.length}` : '', t.activation ? 'Aktivierung' : ''].filter(Boolean).join(' · ');
   if (t.type !== 'crossfit') {
     const bits = [];
-    if (t.durationMin) bits.push(`${t.durationMin} min`);
+    const cardio = cardioText(t);
+    if (cardio) bits.push(cardio);
+    else if (t.durationMin) bits.push(`${t.durationMin} min`);
     if (reha) bits.push(reha);
     if (t.notes) bits.push(t.notes.split('\n')[0]);
     return bits.join(' · ');
@@ -158,6 +163,18 @@ function trainingSummary(t) {
     })]
     .filter(Boolean)
     .join(' · ');
+}
+
+function fmtKm(km) {
+  return `${String(Math.round(km * 100) / 100).replace('.', ',')} km`;
+}
+
+// Laufen: Distanz, Zeit, Pace; Cardio: Distanz, Dauer, km/h
+function cardioText(t) {
+  if (!t.distanceKm) return '';
+  if (t.type === 'laufen' && t.timeSec) return `${fmtKm(t.distanceKm)} · ${fmtTime(t.timeSec)} · ${fmtTime(t.timeSec / t.distanceKm)} /km`;
+  const min = t.timeSec ? t.timeSec / 60 : t.durationMin;
+  return min ? `${fmtKm(t.distanceKm)} · ${Math.round(min)} min · ${String(Math.round((t.distanceKm / min) * 600) / 10).replace('.', ',')} km/h` : fmtKm(t.distanceKm);
 }
 
 function resultText(p) {
@@ -246,7 +263,7 @@ function viewHome() {
   }
   recentPRs.sort((a, b) => b.p.date.localeCompare(a.p.date));
 
-  return `${header('Trainingsbuch', { right: `${syncPill()}<a class="icon-btn" href="#/einstellungen" aria-label="Einstellungen">${icon('gear')}</a>` })}
+  return `${header('Trainingsbuch', { right: `${syncPill()}<a class="icon-btn" href="#/timer" aria-label="Timer">${icon('timer')}</a><a class="icon-btn" href="#/einstellungen" aria-label="Einstellungen">${icon('gear')}</a>` })}
   <main class="page">
     <section class="stats">
       <div class="stat"><div class="stat-num">${thisWeek}</div><div class="stat-lbl">diese Woche</div></div>
@@ -256,12 +273,93 @@ function viewHome() {
     ${morningCheck(today)}
     <a class="cta" href="#/neu">${icon('plus')}<span>Training eintragen</span></a>
     ${weekGoals(all.filter((t) => t.date >= weekStart && t.date <= addDaysISO(weekStart, 6)))}
+    ${planCard(true)}
     ${!isConfigured(store.getConfig()) ? `<a class="card notice" href="#/einstellungen"><strong>GitHub verbinden</strong><span>Noch wird nur auf diesem Gerät gespeichert. Tippe hier, um iPhone und Laptop zu synchronisieren.</span></a>` : ''}
     ${recentPRs.length ? `<h2 class="sec">Neue PRs</h2><div class="hscroll">${recentPRs.slice(0, 8).map(({ rec, p }) => `<a class="card prmini" href="#/pr/${encodeURIComponent(rec.key)}"><div class="prmini-val">${esc(fmtValue(rec, p))}</div><div class="prmini-name">${esc(recTitle(rec))}</div><div class="muted small">${esc(relDate(p.date))}</div></a>`).join('')}</div>` : ''}
     <h2 class="sec">Letzte Trainings</h2>
     ${all.length ? all.slice(0, 6).map(trainingCard).join('') : `<div class="empty"><div class="empty-big">📓</div><p>Dein Trainingsbuch ist noch leer.<br>Trag dein erstes Training ein oder schick Claude ein Foto vom Whiteboard.</p></div>`}
     ${all.length > 6 ? `<a class="link-more" href="#/verlauf">Alle ${all.length} Trainings</a>` : ''}
   </main>`;
+}
+
+/* ---------- Schulter-Plan: Phase und Rückkehr-Kriterien ---------- */
+
+function rehaPhase() {
+  const days = Math.floor((new Date(todayISO()) - new Date(REHA_START)) / 86400000);
+  const week = Math.max(1, Math.floor(days / 7) + 1);
+  const phase = week <= 4 ? 1 : week <= 10 ? 2 : 3;
+  const of = phase === 1 ? 4 : phase === 2 ? 10 : null;
+  return { week, phase, of };
+}
+
+function exercisesOf(t) {
+  const out = [];
+  for (const p of t.parts || []) {
+    if (p.exercise) out.push(p.exercise);
+    for (const x of p.sets || []) if (x.exercise) out.push(x.exercise);
+    for (const m of p.movements || []) if (m.exercise) out.push(m.exercise);
+  }
+  return out;
+}
+
+// Stand jedes Rückkehr-Kriteriums aus den eingetragenen Daten
+function criteriaStatus() {
+  const all = store.trainings();
+  const res = {};
+  for (const c of RETURN_CRITERIA) {
+    let value = 0;
+    if (c.kind === 'max') value = records.get(`max|${c.exercise}`)?.best?.value || 0;
+    if (c.kind === 'count') value = all.filter((t) => t.shoulderPain != null && t.shoulderPain <= 3 && exercisesOf(t).some((e) => c.exercises.includes(e))).length;
+    if (c.kind === 'calm') {
+      const from = addDaysISO(todayISO(), -28);
+      const recent = store.checkins().filter((x) => x.date >= from && x.shoulder != null);
+      const flare = recent.find((x) => x.shoulder >= 6);
+      value = recent.filter((x) => x.shoulder <= 3 && (!flare || x.date > flare.date)).length;
+    }
+    res[c.key] = { ...c, value, done: value >= c.target };
+  }
+  res.mu.done = res.mu.done && ['kipping', 't2b', 'pushup', 'snatch'].every((k) => res[k].done);
+  return res;
+}
+
+function planCard(compact) {
+  const ph = rehaPhase();
+  const st = criteriaStatus();
+  const title = `Phase ${ph.phase}${ph.of ? ` · Woche ${ph.week} von ${ph.of}` : ` · Woche ${ph.week}`}`;
+  const phaseText = ph.phase === 1 ? 'Schulter-Programm 3× pro Woche, Kipping & Co. ersetzen.' : ph.phase === 2 ? 'Kraftaufbau: schwerer und langsam. Kipping weiter ersetzen.' : 'Rückkehr: eine Bewegung erst, wenn ihr Kriterium erfüllt ist.';
+  return `<section class="card goals plan">
+    <div class="goals-head"><strong>Schulter-Plan</strong><span class="muted small">${esc(title)}</span></div>
+    <p class="muted small plan-txt">${esc(phaseText)}</p>
+    ${RETURN_CRITERIA.map((c) => {
+      const s = st[c.key];
+      const pct = Math.min(100, Math.round((s.value / c.target) * 100));
+      return `<div class="goal"><span>${esc(c.label)}</span><span class="goal-bar"><i style="width:${pct}%" class="${s.done ? 'done' : ''}"></i></span><span class="goal-num">${s.done ? '✓' : `${s.value}/${c.target}`}</span></div>${compact ? '' : `<p class="muted small crit-need">${esc(c.need)}${s.done ? ` · Einstieg: ${esc(c.start)}` : ''}</p>`}`;
+    }).join('')}
+    ${compact ? '<a class="muted small" href="#/check">Details und Verlauf</a>' : '<p class="muted small">Max-Wiederholungen trägst du als Teil „Max Wdh.“ ein, z. B. „Strict Pull-up“. Für Snatch zählen Trainings mit Overhead Squat oder Snatch Balance, bei denen du die Schulter mit höchstens 3 bewertet hast.</p>'}
+  </section>`;
+}
+
+// Hinweise für schulterkritische Übungen in einem Trainingsteil
+function riskHints(p) {
+  const names = [p.exercise, ...(p.movements || []).map((m) => m.exercise)].filter(Boolean);
+  if (p.benchmark) {
+    const b = findBenchmark(p.benchmark);
+    if (b) names.push(...b.movements.map((m) => m.exercise));
+  }
+  const st = criteriaStatus();
+  const ph = rehaPhase();
+  const seen = new Set();
+  const out = [];
+  for (const n of names) {
+    const low = n.toLowerCase();
+    const r = SHOULDER_RISK.find((x) => x.names.some((y) => y.toLowerCase() === low)) || (/kipping|butterfly/.test(low) ? SHOULDER_RISK[0] : null);
+    if (!r || seen.has(n)) continue;
+    seen.add(n);
+    const c = st[r.crit];
+    if (c.done && ph.phase === 3) out.push(`<p class="hint hint-ok"><strong>${esc(n)}:</strong> Kriterium erfüllt. Einstieg: ${esc(c.start)}</p>`);
+    else out.push(`<p class="hint hint-warn"><strong>${esc(n)}:</strong> laut Schulter-Plan ersetzen durch ${esc(r.alt)}.${c.done ? ' Kriterium schon erfüllt, Rückkehr ab Phase 3.' : ''}</p>`);
+  }
+  return out.join('');
 }
 
 function weekGoals(week) {
@@ -345,6 +443,7 @@ function viewChecks() {
   const last = (arr, f = (v) => v) => (arr.length ? f(arr[arr.length - 1].v) : '–');
   return `${header('Morgen-Check', { back: '#/', right: syncPill() })}
   <main class="page">
+    ${planCard(false)}
     <section class="card"><div class="goals-head"><strong>Schulter links</strong><span class="muted small">zuletzt ${esc(last(sh))}/10</span></div>${lineChart(sh, { min: 0, max: 10, invert: true })}<p class="muted small">Oben = schmerzfrei. Ziel: dauerhaft 0–3.</p></section>
     <section class="card"><div class="goals-head"><strong>Schlaf</strong><span class="muted small">zuletzt ${esc(last(sl))}/5</span></div>${lineChart(sl, { min: 1, max: 5 })}</section>
     <section class="card"><div class="goals-head"><strong>Gewicht</strong><span class="muted small">zuletzt ${esc(last(wt, fmtKg))}</span></div>${lineChart(wt, { min: wMin, max: wMax })}</section>
@@ -354,6 +453,35 @@ function viewChecks() {
     <p class="muted small center"><a class="accent" href="${REHA_GUIDE_URL}" target="_blank" rel="noopener">Schulter-Programm ansehen</a></p>
   </main>`;
 }
+
+/* ---------- Timer ---------- */
+
+function viewTimer(query) {
+  timer.applyParams(query);
+  return timer.view(header('Timer', { back: timer.isRunning() ? null : '#/' }));
+}
+timer.setRerender(() => render());
+timer.setTransferHandler((link, mode, r) => {
+  const p = draft?.parts?.[link.part];
+  if (!p) {
+    toast('Das Training ist nicht mehr offen', true);
+    location.hash = '#/';
+    return;
+  }
+  p.result = p.result || {};
+  if (mode === 'fortime') {
+    if (r.capped) {
+      p.result.capped = true;
+    } else {
+      p.result.timeSec = r.timeSec;
+      p.result.capped = false;
+    }
+  }
+  if (mode === 'amrap') p.result.rounds = r.rounds;
+  persistDraft();
+  location.hash = link.back;
+  toast('Ergebnis übernommen');
+});
 
 /* ---------- Eintragen / Bearbeiten ---------- */
 
@@ -418,6 +546,7 @@ function editShoulder() {
   return `<section class="card shoulder">
     <div class="chk-q"><strong>Linke Schulter im Training</strong> <span class="muted">(0–10, bis 3 ist okay)</span></div>
     ${scale({ action: 'pain', from: 0, to: 10, value: draft.shoulderPain ?? null })}
+    <button type="button" class="chip chip-sm act-chip ${draft.activation ? 'on' : ''}" data-action="activation">Aktivierung vor dem WOD (5 min) <span class="chip-dose">${esc(REHA_ACTIVATION)}</span></button>
     ${open ? `<div class="chk-q reha-head"><strong>Schulter-Programm</strong><button type="button" class="link-btn" data-action="rehaall">${done.size === REHA_EXERCISES.length ? 'Keine' : 'Alle'}</button></div>
     <div class="chips chips-sm">${REHA_EXERCISES.map((r) => `<button type="button" class="chip chip-sm ${done.has(r.id) ? 'on' : ''}" data-action="reha" data-value="${r.id}">${esc(r.name)} <span class="chip-dose">${esc(r.dose)}</span></button>`).join('')}</div>
     <a class="muted small" href="${REHA_GUIDE_URL}" target="_blank" rel="noopener">Anleitung mit Bildern öffnen</a>`
@@ -426,6 +555,16 @@ function editShoulder() {
 }
 
 function editOther() {
+  if (draft.type === 'laufen' || draft.type === 'cardio') {
+    const run = draft.type === 'laufen';
+    const info = cardioText({ ...draft, durationMin: draft.durationMin });
+    return `<div class="row">
+      <label class="field"><span>Distanz (km)</span><input type="text" inputmode="decimal" data-bind="distanceKm" data-type="num" data-rerender="1" value="${esc(draft.distanceKm != null ? String(draft.distanceKm).replace('.', ',') : '')}" placeholder="z. B. 5,2"></label>
+      ${run ? `<label class="field"><span>Zeit (h:mm:ss)</span><input inputmode="numeric" data-bind="timeSec" data-type="time" data-rerender="1" value="${esc(draft.timeSec ? fmtTime(draft.timeSec) : '')}" placeholder="28:30"></label>`
+    : `<label class="field"><span>Dauer (min)</span><input type="number" inputmode="numeric" data-bind="durationMin" data-type="num" data-rerender="1" value="${esc(draft.durationMin ?? '')}" placeholder="z. B. 35"></label>`}
+    </div>
+    ${info ? `<p class="hint">${esc(info)}</p>` : ''}`;
+  }
   return `<div class="row">
     <label class="field"><span>Dauer (min)</span><input type="number" inputmode="numeric" data-bind="durationMin" data-type="num" value="${esc(draft.durationMin ?? '')}" placeholder="z. B. 45"></label>
   </div>`;
@@ -508,7 +647,7 @@ function editPart(p, i) {
         <label class="field w-30"><span>Wdh.</span><input type="number" inputmode="numeric" data-bind="parts.${i}.result.reps" data-type="num" value="${esc(p.result?.reps ?? '')}"></label>
       </div>`;
   } else if (p.format === 'other') {
-    body = `<label class="field"><span>Titel</span><input data-bind="parts.${i}.title" value="${esc(p.title || '')}" placeholder="z. B. Mobility-Routine, Skill-Arbeit"></label>`;
+    body = `<label class="field"><span>Titel</span><input data-bind="parts.${i}.title" data-rerender="1" value="${esc(p.title || '')}" placeholder="z. B. Mobility-Routine, Skill-Arbeit"></label>`;
   } else {
     const r = p.result || {};
     body = `
@@ -522,7 +661,7 @@ function editPart(p, i) {
       </div>
       <div class="movs">
         ${(p.movements || []).map((m, j) => `<div class="mov">
-          ${exerciseInput(`parts.${i}.movements.${j}.exercise`, m.exercise)}
+          ${exerciseInput(`parts.${i}.movements.${j}.exercise`, m.exercise, 'data-rerender="1"')}
           <input class="mov-reps" data-bind="parts.${i}.movements.${j}.reps" value="${esc(m.reps ?? '')}" placeholder="Wdh. (z. B. 21-15-9)">
           <input class="mov-kg" type="number" inputmode="decimal" step="0.5" data-bind="parts.${i}.movements.${j}.weightKg" data-type="num" value="${esc(m.weightKg ?? '')}" placeholder="kg">
           <button type="button" class="icon-btn sm" data-action="delmov" data-i="${i}" data-j="${j}" aria-label="Bewegung löschen">${icon('x')}</button>
@@ -559,8 +698,17 @@ function editPart(p, i) {
     </div>
     <div class="chips chips-sm">${catChips}</div>
     ${body}
-    <label class="field"><span>Freitext</span><textarea rows="2" data-bind="parts.${i}.text" placeholder="Beschreibung wie auf dem Whiteboard">${esc(p.text || '')}</textarea></label>
+    <label class="field"><span>Freitext</span><textarea rows="2" data-bind="parts.${i}.text" data-rerender="1" placeholder="Beschreibung wie auf dem Whiteboard">${esc(p.text || '')}</textarea></label>
+    ${benchHint(p, i)}
+    ${riskHints(p)}
+    ${['fortime', 'amrap', 'emom'].includes(p.format) ? `<button type="button" class="btn btn-ghost sm" data-action="timerpart" data-i="${i}">${icon('timer')} Timer starten</button>` : ''}
   </section>`;
+}
+
+function benchHint(p, i) {
+  if (p.benchmark) return '';
+  const b = detectBenchmark(`${p.title || ''} ${p.text || ''}`);
+  return b ? `<p class="hint hint-ok bench-hint">Ist das der Benchmark <strong>${esc(b.name)}</strong>? <button type="button" class="link-btn" data-action="usebenchmark" data-i="${i}" data-value="${esc(b.name)}">Übernehmen</button></p>` : '';
 }
 
 function setPath(obj, path, value) {
@@ -584,6 +732,7 @@ function readInput(el) {
 
 $app.addEventListener('input', (e) => {
   const el = e.target;
+  if (el.dataset.tm) return timer.setField(el.dataset.tm, el.value);
   if (el.dataset.chk && chk) {
     chk[el.dataset.chk] = num(el.value);
     return;
@@ -634,6 +783,7 @@ $app.addEventListener('click', async (e) => {
   const j = btn.dataset.j != null ? Number(btn.dataset.j) : null;
   const v = btn.dataset.value;
 
+  if (a.startsWith('tm')) return timer.action(a, btn);
   switch (a) {
     case 'chk': {
       const f = btn.dataset.field;
@@ -671,6 +821,30 @@ $app.addEventListener('click', async (e) => {
       else set.add(v);
       draft.reha = REHA_EXERCISES.map((r) => r.id).filter((id) => set.has(id));
       return render();
+    }
+    case 'activation':
+      draft.activation = !draft.activation;
+      return render();
+    case 'usebenchmark': {
+      const b = findBenchmark(v);
+      const old = draft.parts[i];
+      const np = partFromBenchmark(old.label, b);
+      draft.parts[i] = { ...np, id: old.id, text: old.text, result: old.result || {}, rx: old.rx !== false, movements: (old.movements || []).some((m) => m.exercise) ? old.movements : np.movements };
+      return render();
+    }
+    case 'timerpart': {
+      const p = draft.parts[i];
+      const q = new URLSearchParams({ mode: p.format, part: String(i), back: location.hash });
+      if (p.format === 'fortime' && p.timeCapMin) q.set('cap', p.timeCapMin);
+      if (p.format === 'amrap' && p.durationMin) q.set('min', p.durationMin);
+      if (p.format === 'emom') {
+        const every = (p.intervalMin || 1) * 60;
+        q.set('every', every);
+        if (p.durationMin) q.set('rounds', Math.max(1, Math.round((p.durationMin * 60) / every)));
+      }
+      persistDraft();
+      location.hash = `#/timer?${q}`;
+      return;
     }
     case 'rehaall':
       draft.reha = (draft.reha || []).length === REHA_EXERCISES.length ? [] : REHA_EXERCISES.map((r) => r.id);
@@ -771,7 +945,16 @@ function relabel() {
 function cleanDraft(t) {
   const c = structuredClone(t);
   delete c.rehaOpen;
+  if (!c.activation) delete c.activation;
   if (!(c.reha || []).length) delete c.reha;
+  if (c.type === 'laufen' || c.type === 'cardio') {
+    if (c.timeSec) c.durationMin = Math.round(c.timeSec / 60);
+    if (c.distanceKm == null) delete c.distanceKm;
+    if (c.type !== 'laufen' || !c.timeSec) delete c.timeSec;
+  } else {
+    delete c.distanceKm;
+    delete c.timeSec;
+  }
   if (c.shoulderPain == null) delete c.shoulderPain;
   if (c.type !== 'crossfit') {
     delete c.parts;
@@ -813,8 +996,8 @@ function viewTraining(id) {
   const prKeys = new Set(prs.map((x) => x.rec.key));
   return `${header(fmtDate(t.date), { back: '#/verlauf', right: `<a class="icon-btn" href="#/bearbeiten/${t.id}" aria-label="Bearbeiten">${icon('edit')}</a>` })}
   <main class="page">
-    <div class="detail-type">${type.icon} ${esc(type.label)}${t.durationMin ? ` · ${t.durationMin} min` : ''}${t.source === 'claude' ? ' · <span class="muted">von Claude eingetragen</span>' : ''}</div>
-    ${t.shoulderPain != null || (t.reha || []).length ? `<section class="card"><div class="part-sub">Linke Schulter</div>${t.shoulderPain != null ? `<p>${painTag(t.shoulderPain)}</p>` : ''}${(t.reha || []).length ? `<div class="chips chips-sm">${REHA_EXERCISES.filter((r) => t.reha.includes(r.id)).map((r) => `<span class="chip chip-sm on">${esc(r.name)}</span>`).join('')}</div>` : ''}</section>` : ''}
+    <div class="detail-type">${type.icon} ${esc(type.label)}${cardioText(t) ? ` · ${esc(cardioText(t))}` : t.durationMin ? ` · ${t.durationMin} min` : ''}${t.source === 'claude' ? ' · <span class="muted">von Claude eingetragen</span>' : ''}</div>
+    ${t.shoulderPain != null || (t.reha || []).length || t.activation ? `<section class="card"><div class="part-sub">Linke Schulter</div>${t.shoulderPain != null ? `<p>${painTag(t.shoulderPain)}</p>` : ''}${t.activation ? '<p class="small">Aktivierung vor dem WOD gemacht</p>' : ''}${(t.reha || []).length ? `<div class="chips chips-sm">${REHA_EXERCISES.filter((r) => t.reha.includes(r.id)).map((r) => `<span class="chip chip-sm on">${esc(r.name)}</span>`).join('')}</div>` : ''}</section>` : ''}
     ${prs.length ? `<div class="card prbanner">${icon('trophy')}<div>${prs.map(({ rec, point }) => `<div><strong>Neuer PR:</strong> ${esc(recTitle(rec))} – ${esc(fmtValue(rec, point))}</div>`).join('')}</div></div>` : ''}
     ${(t.parts || []).map((p) => partDetail(p, prKeys)).join('')}
     ${t.notes ? `<section class="card"><div class="part-sub">Notizen</div><p class="pre">${esc(t.notes)}</p></section>` : ''}
@@ -983,7 +1166,7 @@ function viewSettings() {
       <p class="muted small">${store.trainings().length} Trainings gespeichert.</p>
       <button type="button" class="btn btn-ghost" data-action="export">Als JSON exportieren</button>
     </section>
-    <p class="muted small center">TrainingsApp v0.0.3.1</p>
+    <p class="muted small center">TrainingsApp v0.0.4</p>
   </main>`;
 }
 
