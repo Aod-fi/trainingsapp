@@ -45,7 +45,7 @@ export const REHA_EXERCISES = [
 export const REHA_ACTIVATION = 'Wall Slide, Außenrotation, Scap Pull-up · je 1–2 Sätze';
 
 // Start des Schulter-Programms (Phase 1 = Woche 1–4, Phase 2 = Woche 5–10, danach Phase 3)
-export const REHA_START = '2026-11-05';
+export const REHA_START = '2026-11-09';
 
 // Schulterkritische Übungen bis zur Rückkehr (Phase 3): Ersatz laut Plan und zugehöriges Kriterium
 export const SHOULDER_RISK = [
