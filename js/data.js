@@ -25,6 +25,7 @@ export const TRAINING_TYPES = {
   laufen: { label: 'Laufen', icon: '🏃' },
   padel: { label: 'Padel', icon: '🎾' },
   mobility: { label: 'Mobility', icon: '🧘' },
+  regeneration: { label: 'Regeneration', icon: '💆' },
   sonstiges: { label: 'Sonstiges', icon: '✨' },
 };
 
@@ -35,6 +36,14 @@ export const CLASSES = {
   stronger: 'Stronger',
   better: 'Better',
   team: 'Team WOD',
+};
+
+// Arten der Regeneration (Mehrfachauswahl)
+export const REGEN_KINDS = {
+  massage: 'Massage',
+  sauna: 'Sauna',
+  eisbad: 'Eisbad',
+  dehnen: 'Dehnen/Faszien',
 };
 
 // Schulter-Programm Phase 1 (linke Schulter). Bebilderte Anleitung: REHA_GUIDE_URL

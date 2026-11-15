@@ -1,6 +1,6 @@
 import * as store from './store.js';
 import { testAccess, isConfigured } from './github.js';
-import { BENCHMARKS, CLASSES, EXERCISES, CATEGORIES, FORMATS, TRAINING_TYPES, REHA_EXERCISES, REHA_GUIDE_URL, REHA_ACTIVATION, REHA_START, SHOULDER_RISK, RETURN_CRITERIA, WEEK_GOALS, findBenchmark, detectBenchmark } from './data.js';
+import { BENCHMARKS, CLASSES, REGEN_KINDS, EXERCISES, CATEGORIES, FORMATS, TRAINING_TYPES, REHA_EXERCISES, REHA_GUIDE_URL, REHA_ACTIVATION, REHA_START, SHOULDER_RISK, RETURN_CRITERIA, WEEK_GOALS, findBenchmark, detectBenchmark } from './data.js';
 import * as timer from './timer.js';
 import { computeRecords, prsOfTraining, fmtValue, recTitle, oneRepMax, RM_REPS } from './pr.js';
 import { uid, todayISO, esc, parseTime, fmtTime, num, fmtKg, fmtDate, relDate, roundTo, weekStartISO, addDaysISO } from './util.js';
@@ -151,6 +151,7 @@ function trainingSummary(t) {
     const cardio = cardioText(t);
     if (cardio) bits.push(cardio);
     else if (t.durationMin) bits.push(`${t.durationMin} min`);
+    if ((t.regen || []).length) bits.push(t.regen.map((k) => REGEN_KINDS[k] || k).join(', '));
     if (reha) bits.push(reha);
     if (t.notes) bits.push(t.notes.split('\n')[0]);
     return bits.join(' · ');
@@ -369,6 +370,7 @@ function weekGoals(week) {
       const pct = Math.min(100, Math.round((n / g.goal) * 100));
       return `<div class="goal"><span>${esc(g.label)}</span><span class="goal-bar"><i style="width:${pct}%" class="${n >= g.goal ? 'done' : ''}"></i></span><span class="goal-num">${n}/${g.goal}</span></div>`;
     }).join('')}
+    ${(() => { const r = week.filter((t) => t.type === 'regeneration').length; return r ? `<p class="muted small">Regeneration: ${r}× diese Woche</p>` : ''; })()}
   </section>`;
 }
 
@@ -565,7 +567,10 @@ function editOther() {
     </div>
     ${info ? `<p class="hint">${esc(info)}</p>` : ''}`;
   }
-  return `<div class="row">
+  const regen = draft.type === 'regeneration'
+    ? `<div class="chips chips-sm" aria-label="Art der Regeneration">${Object.entries(REGEN_KINDS).map(([k, v]) => `<button type="button" class="chip chip-sm ${(draft.regen || []).includes(k) ? 'on' : ''}" data-action="regen" data-value="${k}">${esc(v)}</button>`).join('')}</div>`
+    : '';
+  return `${regen}<div class="row">
     <label class="field"><span>Dauer (min)</span><input type="number" inputmode="numeric" data-bind="durationMin" data-type="num" value="${esc(draft.durationMin ?? '')}" placeholder="z. B. 45"></label>
   </div>`;
 }
@@ -851,6 +856,12 @@ $app.addEventListener('click', async (e) => {
       draft.reha = (draft.reha || []).length === REHA_EXERCISES.length ? [] : REHA_EXERCISES.map((r) => r.id);
       draft.rehaOpen = true;
       return render();
+    case 'regen': {
+      const set = new Set(draft.regen || []);
+      if (set.has(v)) set.delete(v); else set.add(v);
+      draft.regen = [...set];
+      return render();
+    }
     case 'kurs':
       draft.kurs = draft.kurs === v ? null : v;
       return render();
@@ -961,6 +972,7 @@ function cleanDraft(t) {
   }
   if (c.shoulderPain == null) delete c.shoulderPain;
   if (c.type !== 'crossfit' || !c.kurs) delete c.kurs;
+  if (c.type !== 'regeneration' || !(c.regen || []).length) delete c.regen;
   if (c.type !== 'crossfit') {
     delete c.parts;
   } else {
@@ -1114,12 +1126,24 @@ function viewPR(key) {
       <div class="hero-val">${esc(fmtValue(rec))}</div>
       ${sparkline(rec)}
     </section>
+    ${rec.kind === 'lift' ? pctTable(rec.name) : ''}
     <h2 class="sec">Alle Ergebnisse</h2>
     ${[...rec.history].reverse().map((p) => `<a class="card prrow" href="#/training/${p.trainingId}">
       <div><div>${esc(fmtDate(p.date))}</div></div>
       <div class="prrow-val ${p.isPR ? 'accent' : ''}">${p.isPR ? '★ ' : ''}${esc(fmtValue(rec, p))}</div>
     </a>`).join('')}
   </main>`;
+}
+
+// %-Tabelle vom (geschätzten) 1RM, wie die Prozent-Charts großer WOD-Apps
+function pctTable(exercise) {
+  const orm = oneRepMax(records, exercise);
+  if (!orm) return '';
+  const pcts = [50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100];
+  return `<section class="card">
+    <div class="goals-head"><strong>1RM ${orm.estimated ? '≈ ' : ''}${esc(fmtKg(roundTo(orm.value, 0.5)))}</strong><span class="muted small">${orm.estimated ? 'geschätzt (Epley) aus Arbeitssätzen' : 'echter Maximalversuch'}</span></div>
+    <div class="pct-grid">${pcts.map((x) => `<div class="pct-cell"><span class="muted small">${x} %</span><strong>${esc(fmtKg(roundTo((orm.value * x) / 100, 0.5)))}</strong></div>`).join('')}</div>
+  </section>`;
 }
 
 /* ---------- Benchmarks ---------- */
@@ -1171,7 +1195,7 @@ function viewSettings() {
       <p class="muted small">${store.trainings().length} Trainings gespeichert.</p>
       <button type="button" class="btn btn-ghost" data-action="export">Als JSON exportieren</button>
     </section>
-    <p class="muted small center">TrainingsApp v0.0.5</p>
+    <p class="muted small center">TrainingsApp v0.0.5.1</p>
   </main>`;
 }
 
