@@ -28,6 +28,15 @@ export const TRAINING_TYPES = {
   sonstiges: { label: 'Sonstiges', icon: '✨' },
 };
 
+// Kurse der Box (EliteFitness). Faster = Hybrid/Ausdauer und zählt im Wochenziel als Cardio, nicht als CrossFit.
+export const CLASSES = {
+  harder: 'Harder',
+  faster: 'Faster',
+  stronger: 'Stronger',
+  better: 'Better',
+  team: 'Team WOD',
+};
+
 // Schulter-Programm Phase 1 (linke Schulter). Bebilderte Anleitung: REHA_GUIDE_URL
 export const REHA_GUIDE_URL = 'https://claude.ai/artifact/BKeufX9TnTVPConxrvVkcV';
 export const REHA_EXERCISES = [
@@ -68,8 +77,8 @@ export const RETURN_CRITERIA = [
 
 // Wochenziele laut Reha- und Aufbauplan
 export const WEEK_GOALS = [
-  { key: 'crossfit', label: 'CrossFit', goal: 4, match: (t) => t.type === 'crossfit' },
-  { key: 'cardio', label: 'Cardio locker', goal: 2, match: (t) => t.type === 'cardio' || t.type === 'laufen' },
+  { key: 'crossfit', label: 'CrossFit', goal: 4, match: (t) => t.type === 'crossfit' && t.kurs !== 'faster' },
+  { key: 'cardio', label: 'Cardio', goal: 2, match: (t) => ['cardio', 'laufen', 'padel'].includes(t.type) || (t.type === 'crossfit' && t.kurs === 'faster') },
   { key: 'reha', label: 'Schulter-Programm', goal: 3, match: (t) => t.type === 'reha' || (t.reha || []).length > 0 },
 ];
 
@@ -166,6 +175,10 @@ export const BENCHMARKS = [
   { name: 'JT', group: 'Hero', format: 'fortime', scheme: '21-15-9', movements: [mv('Handstand Push-up', '21-15-9'), mv('Ring Dip', '21-15-9'), mv('Push-up', '21-15-9')] },
   { name: 'Michael', group: 'Hero', format: 'fortime', rounds: 3, movements: [mv('Run', '800 m'), mv('Back Extension', '50'), mv('Sit-up', '50')] },
   { name: 'Nate', group: 'Hero', format: 'amrap', durationMin: 20, movements: [mv('Ring Muscle-up', '2'), mv('Handstand Push-up', '4'), mv('Kettlebell Swing', '8', '32/24')] },
+  { name: 'Chad', group: 'Hero', format: 'fortime', movements: [mv('Box Step-up', '1000', null, { note: '50 cm, Rucksack 20 kg' })] },
+  { name: 'Randy', group: 'Hero', format: 'fortime', movements: [mv('Power Snatch', '75', '34/25')] },
+  { name: 'Badger', group: 'Hero', format: 'fortime', rounds: 3, movements: [mv('Squat Clean', '30', '43/29'), mv('Pull-up', '30'), mv('Run', '800 m')] },
+  { name: 'Griff', group: 'Hero', format: 'fortime', movements: [mv('Run', '800 m'), mv('Run rückwärts', '400 m'), mv('Run', '800 m'), mv('Run rückwärts', '400 m')] },
 ];
 
 // Sucht einen Benchmark-Namen in einem Freitext (z. B. vom Whiteboard)
