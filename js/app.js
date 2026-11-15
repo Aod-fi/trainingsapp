@@ -1,6 +1,6 @@
 import * as store from './store.js';
 import { testAccess, isConfigured } from './github.js';
-import { BENCHMARKS, EXERCISES, CATEGORIES, FORMATS, TRAINING_TYPES, REHA_EXERCISES, REHA_GUIDE_URL, REHA_ACTIVATION, REHA_START, SHOULDER_RISK, RETURN_CRITERIA, WEEK_GOALS, findBenchmark, detectBenchmark } from './data.js';
+import { BENCHMARKS, CLASSES, EXERCISES, CATEGORIES, FORMATS, TRAINING_TYPES, REHA_EXERCISES, REHA_GUIDE_URL, REHA_ACTIVATION, REHA_START, SHOULDER_RISK, RETURN_CRITERIA, WEEK_GOALS, findBenchmark, detectBenchmark } from './data.js';
 import * as timer from './timer.js';
 import { computeRecords, prsOfTraining, fmtValue, recTitle, oneRepMax, RM_REPS } from './pr.js';
 import { uid, todayISO, esc, parseTime, fmtTime, num, fmtKg, fmtDate, relDate, roundTo, weekStartISO, addDaysISO } from './util.js';
@@ -198,7 +198,7 @@ function trainingCard(t) {
   return `<a class="card tcard" href="#/training/${t.id}">
     <div class="tcard-icon">${type.icon}</div>
     <div class="tcard-body">
-      <div class="tcard-top"><span class="tcard-date">${esc(relDate(t.date))}</span><span class="tag">${esc(type.label)}</span>${prs.length ? `<span class="tag tag-pr">${prs.length} PR</span>` : ''}${painTag(t.shoulderPain)}</div>
+      <div class="tcard-top"><span class="tcard-date">${esc(relDate(t.date))}</span><span class="tag">${esc(t.kurs && CLASSES[t.kurs] ? CLASSES[t.kurs] : type.label)}</span>${prs.length ? `<span class="tag tag-pr">${prs.length} PR</span>` : ''}${painTag(t.shoulderPain)}</div>
       <div class="tcard-sum">${esc(trainingSummary(t)) || '<span class="muted">Ohne Details</span>'}</div>
     </div>
   </a>`;
@@ -572,7 +572,8 @@ function editOther() {
 
 function editCrossfit() {
   const parts = draft.parts || [];
-  return `${parts.map((p, i) => editPart(p, i)).join('')}
+  return `<div class="chips chips-sm" role="radiogroup" aria-label="Kurs">${Object.entries(CLASSES).map(([k, v]) => `<button type="button" class="chip chip-sm ${draft.kurs === k ? 'on' : ''}" data-action="kurs" data-value="${k}">${esc(v)}</button>`).join('')}</div>
+  ${parts.map((p, i) => editPart(p, i)).join('')}
   <div class="addpart">
     <button type="button" class="btn btn-ghost" data-action="addpart" data-value="strength">${icon('plus')} Kraft</button>
     <button type="button" class="btn btn-ghost" data-action="addpart" data-value="wod">${icon('plus')} WOD</button>
@@ -850,6 +851,9 @@ $app.addEventListener('click', async (e) => {
       draft.reha = (draft.reha || []).length === REHA_EXERCISES.length ? [] : REHA_EXERCISES.map((r) => r.id);
       draft.rehaOpen = true;
       return render();
+    case 'kurs':
+      draft.kurs = draft.kurs === v ? null : v;
+      return render();
     case 'type':
       draft.type = v;
       if (v === 'crossfit' && !draft.parts) draft.parts = [];
@@ -956,6 +960,7 @@ function cleanDraft(t) {
     delete c.timeSec;
   }
   if (c.shoulderPain == null) delete c.shoulderPain;
+  if (c.type !== 'crossfit' || !c.kurs) delete c.kurs;
   if (c.type !== 'crossfit') {
     delete c.parts;
   } else {
@@ -996,7 +1001,7 @@ function viewTraining(id) {
   const prKeys = new Set(prs.map((x) => x.rec.key));
   return `${header(fmtDate(t.date), { back: '#/verlauf', right: `<a class="icon-btn" href="#/bearbeiten/${t.id}" aria-label="Bearbeiten">${icon('edit')}</a>` })}
   <main class="page">
-    <div class="detail-type">${type.icon} ${esc(type.label)}${cardioText(t) ? ` · ${esc(cardioText(t))}` : t.durationMin ? ` · ${t.durationMin} min` : ''}${t.source === 'claude' ? ' · <span class="muted">von Claude eingetragen</span>' : ''}</div>
+    <div class="detail-type">${type.icon} ${esc(type.label)}${t.kurs && CLASSES[t.kurs] ? ` · ${esc(CLASSES[t.kurs])}` : ''}${cardioText(t) ? ` · ${esc(cardioText(t))}` : t.durationMin ? ` · ${t.durationMin} min` : ''}${t.source === 'claude' ? ' · <span class="muted">von Claude eingetragen</span>' : ''}</div>
     ${t.shoulderPain != null || (t.reha || []).length || t.activation ? `<section class="card"><div class="part-sub">Linke Schulter</div>${t.shoulderPain != null ? `<p>${painTag(t.shoulderPain)}</p>` : ''}${t.activation ? '<p class="small">Aktivierung vor dem WOD gemacht</p>' : ''}${(t.reha || []).length ? `<div class="chips chips-sm">${REHA_EXERCISES.filter((r) => t.reha.includes(r.id)).map((r) => `<span class="chip chip-sm on">${esc(r.name)}</span>`).join('')}</div>` : ''}</section>` : ''}
     ${prs.length ? `<div class="card prbanner">${icon('trophy')}<div>${prs.map(({ rec, point }) => `<div><strong>Neuer PR:</strong> ${esc(recTitle(rec))} – ${esc(fmtValue(rec, point))}</div>`).join('')}</div></div>` : ''}
     ${(t.parts || []).map((p) => partDetail(p, prKeys)).join('')}
@@ -1166,7 +1171,7 @@ function viewSettings() {
       <p class="muted small">${store.trainings().length} Trainings gespeichert.</p>
       <button type="button" class="btn btn-ghost" data-action="export">Als JSON exportieren</button>
     </section>
-    <p class="muted small center">TrainingsApp v0.0.4</p>
+    <p class="muted small center">TrainingsApp v0.0.5</p>
   </main>`;
 }
 

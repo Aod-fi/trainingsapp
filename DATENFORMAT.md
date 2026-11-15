@@ -10,6 +10,7 @@ Eine Datei mit allen Trainings. Claude trägt Trainings aus Whiteboard-Fotos dir
       "id": "eindeutig, z. B. c-2026-11-04-1",
       "date": "2026-11-04",
       "type": "crossfit | reha | cardio | laufen | padel | mobility | sonstiges",
+      "kurs": "harder | faster | stronger | better | team (nur CrossFit, optional)",
       "shoulderPain": 2,
       "reha": ["wall", "yraise"],
       "durationMin": 60,
@@ -52,6 +53,7 @@ Eine Datei mit allen Trainings. Claude trägt Trainings aus Whiteboard-Fotos dir
 }
 ```
 
+- `kurs`: Kurs der Box. `faster` zählt im Wochenziel als Cardio statt als CrossFit. Padel zählt ebenfalls als Cardio.
 - `shoulderPain`: Schmerz linke Schulter im Training, 0–10 (optional, bei jeder Trainingsart).
 - `activation`: `true`, wenn die 5-Minuten-Aktivierung vor dem WOD gemacht wurde (zählt nicht als volles Schulter-Programm).
 - `distanceKm`: Distanz bei Laufen/Cardio; `timeSec`: Laufzeit bei Laufen (daraus Pace, `durationMin` wird daraus gerundet).
