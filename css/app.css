@@ -318,3 +318,7 @@ textarea { resize: vertical; min-height: 0; }
 .tm-ctrl .btn { min-width: 120px; }
 .tm-run .btn-big { max-width: 420px; }
 @media (max-width: 380px) { .plan .goal { grid-template-columns: 8.5em 1fr 2.6em; font-size: 13px; } }
+
+/* %-Tabelle auf der PR-Seite */
+.pct-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; margin-top: 10px; }
+.pct-cell { display: flex; flex-direction: column; gap: 2px; background: var(--bg2); border-radius: 10px; padding: 8px 10px; font-variant-numeric: tabular-nums; }
