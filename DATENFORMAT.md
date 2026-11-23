@@ -9,7 +9,7 @@ Eine Datei mit allen Trainings. Claude trägt Trainings aus Whiteboard-Fotos dir
     {
       "id": "eindeutig, z. B. c-2026-11-04-1",
       "date": "2026-11-04",
-      "type": "crossfit | reha | cardio | laufen | padel | mobility | regeneration | sonstiges",
+      "type": "crossfit | kraft | reha | cardio | laufen | padel | mobility | regeneration | sonstiges",
       "kurs": "harder | faster | stronger | better | team (nur CrossFit, optional)",
       "shoulderPain": 2,
       "reha": ["wall", "yraise"],
@@ -53,6 +53,8 @@ Eine Datei mit allen Trainings. Claude trägt Trainings aus Whiteboard-Fotos dir
 }
 ```
 
+- `kraft`: eigenes Krafttraining außerhalb der Kurse, gleiche Struktur wie CrossFit (`parts` mit `sets`), ohne `kurs`. PRs zählen mit.
+- Wochenziele: 4 Trainingstage (`crossfit` + `kraft`, je Kalendertag einmal), 2× `kraft`, 2× Cardio, 3× Schulter-Programm, 3 Ruhetage.
 - `kurs`: Kurs der Box. `faster` zählt im Wochenziel als Cardio statt als CrossFit. Padel zählt ebenfalls als Cardio.
 - `regen`: bei `regeneration` die Arten als Liste: `massage`, `sauna`, `eisbad`, `dehnen`.
 - `shoulderPain`: Schmerz linke Schulter im Training, 0–10 (optional, bei jeder Trainingsart).

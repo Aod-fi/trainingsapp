@@ -20,6 +20,7 @@ export const FORMATS = {
 
 export const TRAINING_TYPES = {
   crossfit: { label: 'CrossFit', icon: '🏋️' },
+  kraft: { label: 'Krafttraining', icon: '💪' },
   reha: { label: 'Reha', icon: '🩹' },
   cardio: { label: 'Cardio', icon: '🚴' },
   laufen: { label: 'Laufen', icon: '🏃' },
@@ -85,11 +86,17 @@ export const RETURN_CRITERIA = [
 ];
 
 // Wochenziele laut Reha- und Aufbauplan
+// Wochenrahmen seit 23.11.2026: 4 Trainingstage (davon 1–2 Doppel-Tage mit Kurs + eigenem Krafttraining),
+// 2× eigenes Krafttraining, 2× Cardio (Faster, Lauf, Padel), 3× Schulter-Programm, 3 Ruhetage.
+// days: true zählt Kalendertage statt Einträge (ein Doppel-Tag = 1 Trainingstag).
+export const TRAINING_DAY_TYPES = ['crossfit', 'kraft'];
 export const WEEK_GOALS = [
-  { key: 'crossfit', label: 'CrossFit', goal: 4, match: (t) => t.type === 'crossfit' && t.kurs !== 'faster' },
+  { key: 'days', label: 'Trainingstage', goal: 4, days: true, match: (t) => TRAINING_DAY_TYPES.includes(t.type) },
+  { key: 'kraft', label: 'Eigenes Krafttraining', goal: 2, match: (t) => t.type === 'kraft' },
   { key: 'cardio', label: 'Cardio', goal: 2, match: (t) => ['cardio', 'laufen', 'padel'].includes(t.type) || (t.type === 'crossfit' && t.kurs === 'faster') },
   { key: 'reha', label: 'Schulter-Programm', goal: 3, match: (t) => t.type === 'reha' || (t.reha || []).length > 0 },
 ];
+export const REST_DAYS_GOAL = 3;
 
 const ex = (name, cat) => ({ name, cat });
 
