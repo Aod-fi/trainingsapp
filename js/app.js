@@ -1,6 +1,6 @@
 import * as store from './store.js';
 import { testAccess, isConfigured } from './github.js';
-import { BENCHMARKS, CLASSES, REGEN_KINDS, EXERCISES, CATEGORIES, FORMATS, TRAINING_TYPES, REHA_EXERCISES, REHA_GUIDE_URL, REHA_ACTIVATION, REHA_START, SHOULDER_RISK, RETURN_CRITERIA, WEEK_GOALS, findBenchmark, detectBenchmark } from './data.js';
+import { BENCHMARKS, CLASSES, REGEN_KINDS, EXERCISES, CATEGORIES, FORMATS, TRAINING_TYPES, REHA_EXERCISES, REHA_GUIDE_URL, REHA_ACTIVATION, REHA_START, SHOULDER_RISK, RETURN_CRITERIA, WEEK_GOALS, REST_DAYS_GOAL, TRAINING_DAY_TYPES, findBenchmark, detectBenchmark } from './data.js';
 import * as timer from './timer.js';
 import { computeRecords, prsOfTraining, fmtValue, recTitle, oneRepMax, RM_REPS } from './pr.js';
 import { uid, todayISO, esc, parseTime, fmtTime, num, fmtKg, fmtDate, relDate, roundTo, weekStartISO, addDaysISO } from './util.js';
@@ -144,9 +144,12 @@ function icon(name) {
   return `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
 }
 
+// CrossFit und eigenes Krafttraining haben Teile (A/B/C) mit Sätzen und PRs
+const isStructured = (type) => TRAINING_DAY_TYPES.includes(type);
+
 function trainingSummary(t) {
   const reha = [(t.reha || []).length ? `Schulter-Programm ${t.reha.length}/${REHA_EXERCISES.length}` : '', t.activation ? 'Aktivierung' : ''].filter(Boolean).join(' · ');
-  if (t.type !== 'crossfit') {
+  if (!isStructured(t.type)) {
     const bits = [];
     const cardio = cardioText(t);
     if (cardio) bits.push(cardio);
@@ -366,10 +369,18 @@ function riskHints(p) {
 function weekGoals(week) {
   return `<section class="card goals"><div class="goals-head"><strong>Diese Woche</strong><span class="muted small">Ziel laut Plan</span></div>
     ${WEEK_GOALS.map((g) => {
-      const n = week.filter(g.match).length;
+      const hits = week.filter(g.match);
+      const n = g.days ? new Set(hits.map((t) => t.date)).size : hits.length;
       const pct = Math.min(100, Math.round((n / g.goal) * 100));
       return `<div class="goal"><span>${esc(g.label)}</span><span class="goal-bar"><i style="width:${pct}%" class="${n >= g.goal ? 'done' : ''}"></i></span><span class="goal-num">${n}/${g.goal}</span></div>`;
     }).join('')}
+    ${(() => {
+      const start = weekStartISO(todayISO());
+      const elapsed = Math.round((new Date(todayISO()) - new Date(start)) / 86400000) + 1;
+      const trainDays = new Set(week.filter((t) => TRAINING_DAY_TYPES.includes(t.type) && t.date <= todayISO()).map((t) => t.date)).size;
+      const rest = Math.max(0, elapsed - trainDays);
+      return `<p class="muted small">Ruhetage bisher: ${rest} von ${REST_DAYS_GOAL}</p>`;
+    })()}
     ${(() => { const r = week.filter((t) => t.type === 'regeneration').length; return r ? `<p class="muted small">Regeneration: ${r}× diese Woche</p>` : ''; })()}
   </section>`;
 }
@@ -532,7 +543,7 @@ function viewEdit(arg, hash) {
     <div class="chips" role="radiogroup" aria-label="Art">
       ${Object.entries(TRAINING_TYPES).map(([k, v]) => `<button type="button" class="chip ${draft.type === k ? 'on' : ''}" data-action="type" data-value="${k}">${v.icon} ${esc(v.label)}</button>`).join('')}
     </div>
-    ${draft.type === 'crossfit' ? editCrossfit() : editOther()}
+    ${isStructured(draft.type) ? editCrossfit() : editOther()}
     ${editShoulder()}
     <label class="field"><span>Notizen</span><textarea data-bind="notes" rows="3" placeholder="Wie lief's? Schmerzen, Skalierung, Gefühl …">${esc(draft.notes)}</textarea></label>
     <div class="actions sticky-actions">
@@ -577,7 +588,7 @@ function editOther() {
 
 function editCrossfit() {
   const parts = draft.parts || [];
-  return `<div class="chips chips-sm" role="radiogroup" aria-label="Kurs">${Object.entries(CLASSES).map(([k, v]) => `<button type="button" class="chip chip-sm ${draft.kurs === k ? 'on' : ''}" data-action="kurs" data-value="${k}">${esc(v)}</button>`).join('')}</div>
+  return `${draft.type !== 'crossfit' ? '' : `<div class="chips chips-sm" role="radiogroup" aria-label="Kurs">${Object.entries(CLASSES).map(([k, v]) => `<button type="button" class="chip chip-sm ${draft.kurs === k ? 'on' : ''}" data-action="kurs" data-value="${k}">${esc(v)}</button>`).join('')}</div>`}
   ${parts.map((p, i) => editPart(p, i)).join('')}
   <div class="addpart">
     <button type="button" class="btn btn-ghost" data-action="addpart" data-value="strength">${icon('plus')} Kraft</button>
@@ -867,7 +878,7 @@ $app.addEventListener('click', async (e) => {
       return render();
     case 'type':
       draft.type = v;
-      if (v === 'crossfit' && !draft.parts) draft.parts = [];
+      if (isStructured(v) && !draft.parts) draft.parts = [];
       return render();
     case 'addpart': {
       const init = v === 'strength'
@@ -973,7 +984,7 @@ function cleanDraft(t) {
   if (c.shoulderPain == null) delete c.shoulderPain;
   if (c.type !== 'crossfit' || !c.kurs) delete c.kurs;
   if (c.type !== 'regeneration' || !(c.regen || []).length) delete c.regen;
-  if (c.type !== 'crossfit') {
+  if (!isStructured(c.type)) {
     delete c.parts;
   } else {
     delete c.durationMin;
@@ -1195,7 +1206,7 @@ function viewSettings() {
       <p class="muted small">${store.trainings().length} Trainings gespeichert.</p>
       <button type="button" class="btn btn-ghost" data-action="export">Als JSON exportieren</button>
     </section>
-    <p class="muted small center">TrainingsApp v0.0.5.1</p>
+    <p class="muted small center">TrainingsApp v0.0.5.2</p>
   </main>`;
 }
 

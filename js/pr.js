@@ -10,7 +10,7 @@ function amrapScore(r) {
 // Liefert alle messbaren Ergebnisse eines Trainings als Einträge {key, ...}
 export function entriesOf(t) {
   const out = [];
-  if (t.type !== 'crossfit') return out;
+  if (t.type !== 'crossfit' && t.type !== 'kraft') return out;
   for (const p of t.parts || []) {
     if (p.format === 'strength') {
       for (const s of p.sets || []) {
