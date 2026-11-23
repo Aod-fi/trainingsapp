@@ -1,6 +1,6 @@
 // Service Worker: App-Dateien offline verfügbar machen.
 // Bei jeder Änderung an App-Dateien VERSION erhöhen.
-const VERSION = 'v0.0.5-3';
+const VERSION = 'v0.0.6-1';
 const ASSETS = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const ASSETS = [
   './js/data.js',
   './js/util.js',
   './js/timer.js',
+  './js/progress.js',
   './icons/icon.svg',
   './icons/icon-192.png',
   './icons/apple-touch-icon.png',

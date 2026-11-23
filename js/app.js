@@ -2,6 +2,7 @@ import * as store from './store.js';
 import { testAccess, isConfigured } from './github.js';
 import { BENCHMARKS, CLASSES, REGEN_KINDS, EXERCISES, CATEGORIES, FORMATS, TRAINING_TYPES, REHA_EXERCISES, REHA_GUIDE_URL, REHA_ACTIVATION, REHA_START, SHOULDER_RISK, RETURN_CRITERIA, WEEK_GOALS, REST_DAYS_GOAL, TRAINING_DAY_TYPES, findBenchmark, detectBenchmark } from './data.js';
 import * as timer from './timer.js';
+import { weeklyGoals, goalCount, weightSeries, weightTrend, dayKinds, liftProgress, ring, miniBars, timeLine, calendar } from './progress.js';
 import { computeRecords, prsOfTraining, fmtValue, recTitle, oneRepMax, RM_REPS } from './pr.js';
 import { uid, todayISO, esc, parseTime, fmtTime, num, fmtKg, fmtDate, relDate, roundTo, weekStartISO, addDaysISO } from './util.js';
 
@@ -54,6 +55,7 @@ const routes = [
   [/^#\/benchmarks$/, viewBenchmarks],
   [/^#\/einstellungen$/, viewSettings],
   [/^#\/check$/, viewChecks],
+  [/^#\/fortschritt$/, viewProgress],
   [/^#\/timer(?:\?(.*))?$/, viewTimer],
 ];
 
@@ -276,13 +278,14 @@ function viewHome() {
     </section>
     ${morningCheck(today)}
     <a class="cta" href="#/neu">${icon('plus')}<span>Training eintragen</span></a>
-    ${weekGoals(all.filter((t) => t.date >= weekStart && t.date <= addDaysISO(weekStart, 6)))}
+    ${weekRings(all.filter((t) => t.date >= weekStart && t.date <= addDaysISO(weekStart, 6)))}
+    ${progressTiles(all, today)}
     ${planCard(true)}
     ${!isConfigured(store.getConfig()) ? `<a class="card notice" href="#/einstellungen"><strong>GitHub verbinden</strong><span>Noch wird nur auf diesem Gerät gespeichert. Tippe hier, um iPhone und Laptop zu synchronisieren.</span></a>` : ''}
     ${recentPRs.length ? `<h2 class="sec">Neue PRs</h2><div class="hscroll">${recentPRs.slice(0, 8).map(({ rec, p }) => `<a class="card prmini" href="#/pr/${encodeURIComponent(rec.key)}"><div class="prmini-val">${esc(fmtValue(rec, p))}</div><div class="prmini-name">${esc(recTitle(rec))}</div><div class="muted small">${esc(relDate(p.date))}</div></a>`).join('')}</div>` : ''}
     <h2 class="sec">Letzte Trainings</h2>
-    ${all.length ? all.slice(0, 6).map(trainingCard).join('') : `<div class="empty"><div class="empty-big">📓</div><p>Dein Trainingsbuch ist noch leer.<br>Trag dein erstes Training ein oder schick Claude ein Foto vom Whiteboard.</p></div>`}
-    ${all.length > 6 ? `<a class="link-more" href="#/verlauf">Alle ${all.length} Trainings</a>` : ''}
+    ${all.length ? all.slice(0, 3).map(trainingCard).join('') : `<div class="empty"><div class="empty-big">📓</div><p>Dein Trainingsbuch ist noch leer.<br>Trag dein erstes Training ein oder schick Claude ein Foto vom Whiteboard.</p></div>`}
+    ${all.length > 3 ? `<a class="link-more" href="#/verlauf">Alle ${all.length} Trainings</a>` : ''}
   </main>`;
 }
 
@@ -366,23 +369,94 @@ function riskHints(p) {
   return out.join('');
 }
 
-function weekGoals(week) {
+function weekRings(week) {
+  const today = todayISO();
+  const start = weekStartISO(today);
+  const elapsed = Math.round((new Date(today) - new Date(start)) / 86400000) + 1;
+  const trainDays = new Set(week.filter((t) => TRAINING_DAY_TYPES.includes(t.type) && t.date <= today).map((t) => t.date)).size;
+  const rest = Math.max(0, elapsed - trainDays);
+  const regen = week.filter((t) => t.type === 'regeneration').length;
+  const short = { days: 'Trainings­tage', kraft: 'Kraft', cardio: 'Cardio', reha: 'Schulter' };
   return `<section class="card goals"><div class="goals-head"><strong>Diese Woche</strong><span class="muted small">Ziel laut Plan</span></div>
-    ${WEEK_GOALS.map((g) => {
-      const hits = week.filter(g.match);
-      const n = g.days ? new Set(hits.map((t) => t.date)).size : hits.length;
-      const pct = Math.min(100, Math.round((n / g.goal) * 100));
-      return `<div class="goal"><span>${esc(g.label)}</span><span class="goal-bar"><i style="width:${pct}%" class="${n >= g.goal ? 'done' : ''}"></i></span><span class="goal-num">${n}/${g.goal}</span></div>`;
-    }).join('')}
-    ${(() => {
-      const start = weekStartISO(todayISO());
-      const elapsed = Math.round((new Date(todayISO()) - new Date(start)) / 86400000) + 1;
-      const trainDays = new Set(week.filter((t) => TRAINING_DAY_TYPES.includes(t.type) && t.date <= todayISO()).map((t) => t.date)).size;
-      const rest = Math.max(0, elapsed - trainDays);
-      return `<p class="muted small">Ruhetage bisher: ${rest} von ${REST_DAYS_GOAL}</p>`;
-    })()}
-    ${(() => { const r = week.filter((t) => t.type === 'regeneration').length; return r ? `<p class="muted small">Regeneration: ${r}× diese Woche</p>` : ''; })()}
+    <div class="rings">${WEEK_GOALS.map((g) => ring(goalCount(g, week), g.goal, short[g.key] || g.label)).join('')}</div>
+    <p class="muted small">Ruhetage bisher: ${rest} von ${REST_DAYS_GOAL}${regen ? ` · Regeneration: ${regen}×` : ''}</p>
   </section>`;
+}
+
+// Drei Kacheln auf der Startseite, Tipp führt zum Fortschritt
+function progressTiles(all, today) {
+  const ws = weightSeries(store.checkins());
+  const tr = weightTrend(ws);
+  const lastW = ws[ws.length - 1];
+  const weeks = weeklyGoals(all, today, weeksWithData(all, today));
+  const dayGoal = WEEK_GOALS.find((g) => g.key === 'days');
+  const days = weeks.map((w) => w.counts.days);
+  const sh = store.checkins().filter((c) => c.shoulder != null && c.date >= addDaysISO(today, -13)).reverse().map((c) => ({ date: c.date, v: c.shoulder }));
+  const arrow = !tr ? '' : Math.abs(tr.perWeek) < 0.1 ? '→' : tr.perWeek < 0 ? '↘' : '↗';
+  return `<div class="tiles">
+    <a class="card tile" href="#/fortschritt"><span class="tile-k">Gewicht Ø 7 T.</span><span class="tile-v">${lastW ? esc(fmtKg(Math.round(lastW.avg * 10) / 10)) : '–'}</span><span class="tile-d">${tr ? `${arrow} ${tr.perWeek > 0 ? '+' : ''}${tr.perWeek.toFixed(1).replace('.', ',')} kg/Wo.` : 'noch zu wenig Werte'}</span></a>
+    <a class="card tile" href="#/fortschritt"><span class="tile-k">Schulter 14 T.</span><span class="tile-v">${sh.length ? `${sh[sh.length - 1].v}<small>/10</small>` : '–'}</span>${timeLine(sh, { min: 0, max: 10, invert: true, w: 120, h: 30, dots: false, cls: 'tl-mini' })}</a>
+    <a class="card tile" href="#/fortschritt"><span class="tile-k">Trainingstage</span><span class="tile-v">${days[days.length - 1]}<small>/${dayGoal.goal}</small></span>${miniBars(days, dayGoal.goal, { w: 120, h: 30 })}</a>
+  </div>`;
+}
+
+/* ---------- Fortschritt ---------- */
+
+// Anzahl Wochen mit Daten (höchstens max), damit leere Wochen vor dem Start nicht mitzählen
+function weeksWithData(all, today, max = 6) {
+  const first = all.length ? all[all.length - 1].date : today;
+  const n = Math.round((new Date(weekStartISO(today)) - new Date(weekStartISO(first))) / (7 * 86400000)) + 1;
+  return Math.max(1, Math.min(max, n));
+}
+
+function viewProgress() {
+  const all = store.trainings();
+  const today = todayISO();
+  const nW = weeksWithData(all, today);
+  const weeks = weeklyGoals(all, today, nW);
+  const ws = weightSeries(store.checkins()).filter((p) => p.date >= addDaysISO(today, -56));
+  const tr = weightTrend(ws);
+  const wMin = ws.length ? Math.min(...ws.map((p) => p.v)) - 0.4 : 0;
+  const wMax = ws.length ? Math.max(...ws.map((p) => p.v)) + 0.4 : 1;
+  const lifts = liftProgress(all).slice(0, 8);
+  const checks = [...store.checkins()].reverse().filter((c) => c.shoulder != null && c.date >= addDaysISO(today, -41));
+  const sh = checks.map((c) => ({ date: c.date, v: c.shoulder, cls: `lv-${painLevel(c.shoulder)}` }));
+  const calm = checks.filter((c) => c.shoulder <= 3).length;
+  const trPain = all.filter((t) => t.shoulderPain != null && t.date >= addDaysISO(today, -27));
+  const maxPain = trPain.length ? Math.max(...trPain.map((t) => t.shoulderPain)) : null;
+  const wk = (iso) => `${Number(iso.slice(8))}.${Number(iso.slice(5, 7))}.`;
+  return `${header('Fortschritt', { back: '#/', right: syncPill() })}
+  <main class="page">
+    <section class="card"><div class="goals-head"><strong>Trainingstage</strong><span class="muted small">letzte ${nW} Wochen</span></div>${calendar(dayKinds(all), today, nW)}</section>
+
+    <section class="card"><div class="goals-head"><strong>Wochenziele</strong><span class="muted small">ab ${esc(wk(weeks[0].start))}, rechts = diese Woche</span></div>
+      <div class="wg">${WEEK_GOALS.map((g) => {
+        const vals = weeks.map((w) => w.counts[g.key]);
+        const hit = weeks.slice(0, -1).filter((w) => w.counts[g.key] >= g.goal).length;
+        return `<div class="wg-row"><div><div>${esc(g.label)}</div><div class="muted small">Ziel ${g.goal}${weeks.length > 1 ? ` · erreicht in ${hit} von ${weeks.length - 1} Wochen` : ''}</div></div>${miniBars(vals, g.goal, { w: 120, h: 34 })}<div class="goal-num">${vals[vals.length - 1]}/${g.goal}</div></div>`;
+      }).join('')}</div>
+      <p class="muted small">Die Wochen vor dem 23.11. liefen noch nach dem alten Plan, Krafttraining gab es da noch nicht als eigene Art.</p>
+    </section>
+
+    <section class="card"><div class="goals-head"><strong>Gewicht</strong><span class="muted small">${tr ? `Ø 7 Tage ${esc(fmtKg(Math.round(tr.avg * 10) / 10))} · ${tr.perWeek > 0 ? '+' : ''}${tr.perWeek.toFixed(1).replace('.', ',')} kg/Woche` : `${ws.length} Werte`}</span></div>
+      ${timeLine(ws, { key: 'v', key2: 'avg', min: wMin, max: wMax })}
+      <p class="muted small">Punkte = Einzelwerte, Linie = 7-Tage-Schnitt. Einzelne Tage schwanken um bis zu 1 kg (Wasser, Essen); zählen tut der Schnitt. Am aussagekräftigsten mit täglichem Wiegen unter gleichen Bedingungen.</p>
+    </section>
+
+    <section class="card"><div class="goals-head"><strong>Kraft</strong><span class="muted small">1RM geschätzt (Epley)</span></div>
+      ${lifts.length ? `<div class="lifts">${lifts.map((l) => `<a class="lift" href="#/pr/${encodeURIComponent(`lift|${l.name}|${l.best.reps}`)}">
+        <div><div class="lift-name">${esc(l.name)}</div><div class="muted small">bester Satz ${l.best.reps} × ${esc(fmtKg(l.best.kg))} · ${esc(wk(l.best.date))}${l.pts.length > 1 ? ` · ${l.pts.length} Termine` : ''}</div></div>
+        <div class="lift-val">≈ ${esc(fmtKg(roundTo(l.best.est, 0.5)))}</div>
+        ${l.pts.length > 1 ? timeLine(l.pts.map((p) => ({ date: p.date, v: p.est })), { min: Math.min(...l.pts.map((p) => p.est)) - 2, max: Math.max(...l.pts.map((p) => p.est)) + 2, w: 300, h: 34, cls: 'tl-lift' }) : ''}
+      </a>`).join('')}</div>` : '<p class="muted small">Noch keine Kraftsätze erfasst.</p>'}
+      <p class="muted small">Geschätzt aus Arbeitssätzen bis 12 Wiederholungen, kein echter Maximalversuch. Ein Trend wird erst sichtbar, wenn eine Übung mehrmals vorkommt.</p>
+    </section>
+
+    <section class="card"><div class="goals-head"><strong>Schulter links</strong><span class="muted small">Morgen-Check, 6 Wochen</span></div>
+      ${timeLine(sh, { min: 0, max: 10, invert: true })}
+      <p class="muted small">Oben = schmerzfrei. ${checks.length ? `${calm} von ${checks.length} Checks im grünen Bereich (0–3).` : ''}${maxPain != null ? ` Im Training höchstens ${maxPain}/10 in den letzten 4 Wochen.` : ''}</p>
+    </section>
+  </main>`;
 }
 
 function lastCheckBefore(date) {
@@ -1206,7 +1280,7 @@ function viewSettings() {
       <p class="muted small">${store.trainings().length} Trainings gespeichert.</p>
       <button type="button" class="btn btn-ghost" data-action="export">Als JSON exportieren</button>
     </section>
-    <p class="muted small center">TrainingsApp v0.0.5.2</p>
+    <p class="muted small center">TrainingsApp v0.0.6</p>
   </main>`;
 }
 
